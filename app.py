@@ -1,21 +1,17 @@
 import json
 import os
 import random
-import re
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from openpyxl import load_workbook
 from pydantic import BaseModel
 
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = Path(os.getenv("GAME_CONFIG_PATH", BASE_DIR / "game_config.json"))
-SCENARIO_PATH = Path(os.getenv("SCENARIO_XLSX", BASE_DIR / "Gameplay" / "Scenarios.xlsx"))
 STATE_PATH = Path(os.getenv("GAME_STATE_PATH", BASE_DIR / "game_state.json"))
 
 
@@ -26,15 +22,6 @@ class DeviceNext(BaseModel):
     device_id: str = "printer-001"
     secret: str | None = None
     button: str = "START/NEXT"
-
-
-@dataclass
-class ScenarioCell:
-    row: int
-    col: int
-    phase: str
-    column_name: str
-    value: str
 
 
 def read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -82,29 +69,10 @@ def reset_state(player_count: int | None = None) -> dict[str, Any]:
     return state
 
 
-def load_scenario_cells() -> list[ScenarioCell]:
-    wb = load_workbook(SCENARIO_PATH, data_only=True)
-    ws = wb.active
-    headers = [str(cell.value).strip() if cell.value else "" for cell in ws[1]]
-    cells: list[ScenarioCell] = []
-    current_phase = ""
-    for row in range(2, ws.max_row + 1):
-        phase_value = ws.cell(row=row, column=1).value
-        if phase_value:
-            current_phase = str(phase_value).strip()
-        for col in range(2, ws.max_column + 1):
-            value = ws.cell(row=row, column=col).value
-            if value is None or str(value).strip() == "":
-                continue
-            column_name = headers[col - 1] if col - 1 < len(headers) else f"Column {col}"
-            cells.append(ScenarioCell(
-                row=row,
-                col=col,
-                phase=current_phase or "Game",
-                column_name=column_name or f"Column {col}",
-                value=str(value).strip(),
-            ))
-    return cells
+def load_scenario_steps(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    cfg = cfg or load_config()
+    steps = cfg.get("scenario_steps") or []
+    return [step for step in steps if str(step.get("text") or step.get("title") or step.get("kind") or "").strip()]
 
 
 def clean_text(text: str) -> str:
@@ -165,39 +133,42 @@ def unique_portal_url(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     return f"{base}/{state.get('game_id')}/{state.get('presses')}"
 
 
-def build_card(cell: ScenarioCell, state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    value = apply_placeholders(cell.value, state, cfg)
-    title = f"{cell.phase}: {cell.column_name}"
+def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    value = apply_placeholders(str(step.get("text", "")), state, cfg)
+    phase = str(step.get("phase") or "Game")
+    card_title = str(step.get("title") or step.get("column_name") or "Card")
+    kind = str(step.get("kind") or "text").lower()
+    title = f"{phase}: {card_title}"
     footer = f"Step {state.get('cursor', 0) + 1} | START/NEXT"
     lower = value.lower()
 
-    if "n=number of players" in lower or "n vote papers" in lower:
-        if "vote" in lower:
+    if kind in {"persona", "vote"} or "n=number of players" in lower or "n vote papers" in lower:
+        if kind == "vote" or "vote" in lower:
             body = make_vote_papers(state)
-            title = f"{cell.phase}: Vote Papers"
+            title = f"{phase}: Vote Papers"
         else:
             count = int(state.get("player_count", 4))
             body = "\n\n".join(random_persona(state, cfg, i + 1) for i in range(count))
             body = prompt_text("persona_generation", cfg) + "\n\n" + body if prompt_text("persona_generation", cfg) else body
-            title = f"{cell.phase}: Persona Cards"
+            title = f"{phase}: Persona Cards"
         return {"title": title, "body": body, "footer": footer}
 
-    if "qr code" in lower or "story portal" in lower:
+    if kind == "qr" or "qr code" in lower or "story portal" in lower:
         qr_url = unique_portal_url(state, cfg)
         return {
-            "title": f"{cell.phase}: Story Portal",
+            "title": f"{phase}: Story Portal",
             "body": cfg.get("qr_card_text", "Scan this to submit the winning story."),
             "footer": footer,
             "qr_url": qr_url,
         }
 
-    if "[title based on prompt response]" in lower:
+    if kind == "generated_title" or "[title based on prompt response]" in lower:
         title_prompt = prompt_text("round_title", cfg)
         value = cfg.get("fallback_round_title", "A new turn of the voyage")
         if title_prompt:
             value = f"{value}\n\nPrompt note: {title_prompt}"
 
-    if "[story based on prompt response]" in lower:
+    if kind == "generated_story" or "[story based on prompt response]" in lower:
         story_prompt = prompt_text("round_story", cfg)
         value = cfg.get("fallback_round_story", "Jim and Julia notice a strange invitation slipped under their cabin door.")
         if story_prompt:
@@ -209,29 +180,29 @@ def build_card(cell: ScenarioCell, state: dict[str, Any], cfg: dict[str, Any]) -
 def advance(state: dict[str, Any]) -> dict[str, Any]:
     cfg = load_config()
     secret = cfg.get("device_secret")
-    cells = load_scenario_cells()
-    if not cells:
-        raise HTTPException(status_code=500, detail="No scenario cells found")
+    steps = load_scenario_steps(cfg)
+    if not steps:
+        raise HTTPException(status_code=500, detail="No scenario steps found in game_config.json")
     cursor = int(state.get("cursor", 0))
-    if cursor >= len(cells):
-        cursor = len(cells) - 1
-    cell = cells[cursor]
-    card = build_card(cell, state, cfg)
+    if cursor >= len(steps):
+        cursor = len(steps) - 1
+    step = steps[cursor]
+    card = build_card(step, state, cfg)
     state["last_card"] = card
     state["presses"] = int(state.get("presses", 0)) + 1
-    state["cursor"] = min(cursor + 1, len(cells))
-    state.setdefault("log", []).append({"cursor": cursor, "row": cell.row, "col": cell.col, "card": card})
+    state["cursor"] = min(cursor + 1, len(steps))
+    state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card})
     state["device_secret_required"] = bool(secret)
     save_state(state)
-    return {"card": card, "state": public_state(state), "done": state["cursor"] >= len(cells)}
+    return {"card": card, "state": public_state(state), "done": state["cursor"] >= len(steps)}
 
 
 def public_state(state: dict[str, Any]) -> dict[str, Any]:
-    cells = load_scenario_cells()
+    steps = load_scenario_steps()
     return {
         "game_id": state.get("game_id"),
         "cursor": state.get("cursor", 0),
-        "total_steps": len(cells),
+        "total_steps": len(steps),
         "presses": state.get("presses", 0),
         "player_count": state.get("player_count", 4),
         "last_card": state.get("last_card"),

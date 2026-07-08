@@ -17,13 +17,165 @@
     "Secret desire: leave the scene with a new promise.",
     "Secret desire: make Jim or Julia change their mind."
   ],
+  "scenario_steps": [
+    {
+      "phase": "Start",
+      "title": "Welcome to a game of Love Adventure",
+      "kind": "text",
+      "text": "Welcome to a game of Love Adventure"
+    },
+    {
+      "phase": "Start",
+      "title": "Instructions",
+      "kind": "text",
+      "text": "Throughout the game, the game itself will instruct you. Set the number of players from the side of the box (game unit) and press START/NEXT."
+    },
+    {
+      "phase": "Start",
+      "title": "Story",
+      "kind": "text",
+      "text": "In this game, you will explore the adventures of Jim and Julia, a couple on a seven-day-long ship ride. Press START/NEXT to continue."
+    },
+    {
+      "phase": "Start",
+      "title": "Jim",
+      "kind": "text",
+      "text": "Jim: White, English, 42, bi, random traits."
+    },
+    {
+      "phase": "Start",
+      "title": "Julia",
+      "kind": "text",
+      "text": "Julia: White, American, 37, bi, random traits."
+    },
+    {
+      "phase": "Start",
+      "title": "Getting ready for the first round",
+      "kind": "text",
+      "text": "Put the cards in the middle. For the first round, determine the CAPTAIN. The first round Captain is the player who had the latest date. Each player says the last time they went out on a date, and the player with the latest date starts the game."
+    },
+    {
+      "phase": "Start",
+      "title": "Captain setup",
+      "kind": "text",
+      "text": "The Captain takes hold of the box and presses the START/NEXT button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain."
+    },
+    {
+      "phase": "Start",
+      "title": "Persona Cards",
+      "kind": "persona",
+      "text": "Print N persona cards based on the number of players. Add names to the persona list. Include a perforated line and desires."
+    },
+    {
+      "phase": "Round 1",
+      "title": "A night at the bar",
+      "kind": "text",
+      "text": "A night at the bar"
+    },
+    {
+      "phase": "Round 1",
+      "title": "Story",
+      "kind": "text",
+      "text": "Jim and Julia are sitting at the bar. They have been wanting to do this for a long while, and today feels like the right time. [persona list] are other passengers of the ship, present at the bar. Jim and Julia are discussing how fun the night would be if one other person could join them."
+    },
+    {
+      "phase": "Round 1",
+      "title": "Tell stories",
+      "kind": "text",
+      "text": "Each player tells the story of the NIGHT if their card persona would join Jim and Julia. How do they meet? What happens next? After 1 minute, starting with the Captain, every player has 1-2 minutes to tell their stories."
+    },
+    {
+      "phase": "Round 1",
+      "title": "Vote Papers",
+      "kind": "vote",
+      "text": "Print N vote papers: C, 2, 3, 4, and so on."
+    },
+    {
+      "phase": "Round 1",
+      "title": "Voting instructions",
+      "kind": "text",
+      "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."
+    },
+    {
+      "phase": "Round 1",
+      "title": "Story Portal",
+      "kind": "qr",
+      "text": "QR code that links to the unique story portal."
+    },
+    {
+      "phase": "Round 1",
+      "title": "Winner and desires",
+      "kind": "text",
+      "text": "Take this card to the round winner. They are the new Captain, and they score ONE point. They should scan the card and fill out the form. While they are doing this, explain one new rule. There are desires written on each persona card. They are folded downward so other players cannot read them. Your goal is to make your cards' desires come true. However, you cannot include them in your stories; you have to play the game in a way to realize their desires through either other players' stories or AI stories. When that desire is achieved, you win points as indicated on the card."
+    },
+    {
+      "phase": "Round 1",
+      "title": "Submission gate",
+      "kind": "text",
+      "text": "START/NEXT works only when the new captain submits."
+    },
+    {
+      "phase": "Round 2",
+      "title": "Captain setup",
+      "kind": "text",
+      "text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain."
+    },
+    {
+      "phase": "Round 2",
+      "title": "Persona Cards",
+      "kind": "persona",
+      "text": "Print N persona cards based on Age, Queerness, and Diversity. Add names to the persona list. Include a perforated line and desires."
+    },
+    {
+      "phase": "Round 2",
+      "title": "Generated title",
+      "kind": "generated_title",
+      "text": "[Title based on prompt response]"
+    },
+    {
+      "phase": "Round 2",
+      "title": "Generated story",
+      "kind": "generated_story",
+      "text": "[Story based on prompt response]"
+    },
+    {
+      "phase": "Round 2",
+      "title": "Vote Papers",
+      "kind": "vote",
+      "text": "Print N vote papers: C, 2, 3, 4, and so on."
+    },
+    {
+      "phase": "Round 2",
+      "title": "Voting instructions",
+      "kind": "text",
+      "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."
+    },
+    {
+      "phase": "Round 2",
+      "title": "Story Portal",
+      "kind": "qr",
+      "text": "QR code that links to the unique story portal."
+    },
+    {
+      "phase": "Round 3",
+      "title": "Same as round 2",
+      "kind": "text",
+      "text": "Same as round 2."
+    },
+    {
+      "phase": "Round 4",
+      "title": "Same as round 2",
+      "kind": "text",
+      "text": "Same as round 2."
+    }
+  ],
   "prompts": {
     "persona_generation": "Generate persona cards using the current AGE, QUEERNESS, and DIVERSITY settings. Keep each card short enough for a thermal printer.",
     "round_title": "Create a short, playable round title for Jim and Julia on a seven-day ship ride.",
     "round_story": "Create a story setup involving Jim, Julia, the ship, and the current persona list. End with a clear invitation for players to tell stories."
   },
   "instructions": {
-    "scenario_progression": "The START/NEXT button advances one non-empty playable spreadsheet cell to the right, then continues on the next row. The Phase column labels context and is not printed by itself.",
+    "scenario_progression": "The START/NEXT button advances one entry in scenario_steps. Scenarios.xlsx is reference only and is not read by the app.",
     "printer_unit": "The ESP32 calls /api/device/next, receives one card as JSON, and prints it without a computer connection.",
     "render": "Set the Render environment variable GAME_CONFIG_PATH only if you want to use a different config file path."
   }
