@@ -199,13 +199,22 @@ def advance(state: dict[str, Any]) -> dict[str, Any]:
 
 def public_state(state: dict[str, Any]) -> dict[str, Any]:
     steps = load_scenario_steps()
+    cursor = int(state.get("cursor", 0))
+    next_step = steps[cursor] if cursor < len(steps) else None
     return {
         "game_id": state.get("game_id"),
-        "cursor": state.get("cursor", 0),
+        "cursor": cursor,
         "total_steps": len(steps),
         "presses": state.get("presses", 0),
         "player_count": state.get("player_count", 4),
+        "captain_index": state.get("captain_index", 0),
+        "scores": state.get("scores", {}),
+        "persona_names": state.get("persona_names", []),
         "last_card": state.get("last_card"),
+        "next_step": next_step,
+        "recent_log": state.get("log", [])[-10:],
+        "done": cursor >= len(steps),
+        "openai_api_key_configured": bool(os.getenv("OPENAI_API_KEY")),
     }
 
 
@@ -222,6 +231,12 @@ async def index() -> str:
 @app.get("/api/state")
 async def api_state() -> dict[str, Any]:
     return public_state(load_state())
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard() -> str:
+    cfg = load_config()
+    return DASHBOARD_HTML.format(title=cfg.get("app_title", "Love Adventure V2"))
 
 
 @app.post("/api/next")
@@ -304,6 +319,124 @@ async function resetGame() {{
   draw();
 }}
 draw();
+</script>
+</body>
+</html>
+"""
+
+
+DASHBOARD_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title} Dashboard</title>
+  <style>
+    :root {{ font-family: Arial, sans-serif; color: #171717; background: #f6f3ee; }}
+    body {{ margin: 0; }}
+    main {{ max-width: 1100px; margin: 0 auto; padding: 26px 18px 42px; }}
+    header {{ display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }}
+    h1 {{ margin: 0; font-size: 30px; }}
+    h2 {{ margin: 0 0 10px; font-size: 18px; }}
+    a {{ color: #111; }}
+    .grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
+    .panel {{ background: white; border: 1px solid #ddd6cc; border-radius: 8px; padding: 16px; }}
+    .wide {{ grid-column: span 2; }}
+    .full {{ grid-column: 1 / -1; }}
+    .metric {{ font-size: 30px; font-weight: 700; margin-top: 8px; }}
+    .muted {{ color: #655d54; }}
+    pre {{ white-space: pre-wrap; background: #fbfaf8; border: 1px solid #e6ded4; border-radius: 8px; padding: 12px; margin: 0; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th, td {{ text-align: left; border-bottom: 1px solid #eee6dc; padding: 8px; vertical-align: top; }}
+    th {{ font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #655d54; }}
+    button {{ border: 0; border-radius: 8px; padding: 10px 13px; background: #111; color: white; font-weight: 700; cursor: pointer; }}
+    input {{ padding: 9px; border: 1px solid #cfc7bd; border-radius: 6px; width: 72px; }}
+    @media (max-width: 800px) {{
+      .grid {{ grid-template-columns: 1fr; }}
+      .wide, .full {{ grid-column: auto; }}
+      header {{ display: block; }}
+    }}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>{title} Dashboard</h1>
+      <p class="muted">Live game-master view. Refreshes automatically.</p>
+    </div>
+    <p><a href="/">Open controller</a></p>
+  </header>
+  <section class="grid">
+    <div class="panel"><h2>Game ID</h2><div class="metric" id="gameId">-</div></div>
+    <div class="panel"><h2>Progress</h2><div class="metric" id="progress">-</div></div>
+    <div class="panel"><h2>Button Presses</h2><div class="metric" id="presses">-</div></div>
+    <div class="panel"><h2>Players</h2><div class="metric" id="playersMetric">-</div></div>
+    <div class="panel"><h2>OpenAI Key</h2><div class="metric" id="openaiKey">-</div></div>
+    <div class="panel wide">
+      <h2>Next Step</h2>
+      <pre id="nextStep">Loading...</pre>
+    </div>
+    <div class="panel wide">
+      <h2>Last Printed Card</h2>
+      <pre id="lastCard">No card yet.</pre>
+    </div>
+    <div class="panel wide">
+      <h2>Persona Names</h2>
+      <pre id="personaNames">-</pre>
+    </div>
+    <div class="panel wide">
+      <h2>Reset Game</h2>
+      <p class="muted">Use this when starting a new run.</p>
+      <label>Players <input id="playersInput" type="number" min="1" max="12"></label>
+      <button onclick="resetGame()">Reset</button>
+    </div>
+    <div class="panel full">
+      <h2>Recent Print Log</h2>
+      <table>
+        <thead><tr><th>Step</th><th>Scenario</th><th>Printed Card</th></tr></thead>
+        <tbody id="logRows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+function cardText(card) {{
+  if (!card) return "No card yet.";
+  return `${{card.title || ""}}\\n\\n${{card.body || ""}}\\n\\n${{card.footer || ""}}${{card.qr_url ? "\\n" + card.qr_url : ""}}`;
+}}
+function stepText(step) {{
+  if (!step) return "The configured scenario is complete.";
+  return `${{step.phase || "Game"}}: ${{step.title || "Step"}}\\nKind: ${{step.kind || "text"}}\\n\\n${{step.text || ""}}`;
+}}
+async function loadState() {{
+  const res = await fetch("/api/state", {{cache: "no-store"}});
+  const state = await res.json();
+  document.getElementById("gameId").textContent = state.game_id || "-";
+  document.getElementById("progress").textContent = `${{state.cursor}}/${{state.total_steps}}`;
+  document.getElementById("presses").textContent = state.presses || 0;
+  document.getElementById("playersMetric").textContent = state.player_count || 0;
+  document.getElementById("openaiKey").textContent = state.openai_api_key_configured ? "Set" : "Missing";
+  document.getElementById("playersInput").value = state.player_count || 4;
+  document.getElementById("nextStep").textContent = stepText(state.next_step);
+  document.getElementById("lastCard").textContent = cardText(state.last_card);
+  document.getElementById("personaNames").textContent = (state.persona_names || []).join(", ") || "-";
+  const rows = document.getElementById("logRows");
+  rows.innerHTML = "";
+  for (const item of (state.recent_log || []).slice().reverse()) {{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${{Number(item.cursor) + 1}}</td><td>${{item.step?.phase || ""}}: ${{item.step?.title || ""}}</td><td><pre>${{cardText(item.card)}}</pre></td>`;
+    rows.appendChild(tr);
+  }}
+}}
+async function resetGame() {{
+  const player_count = Number(document.getElementById("playersInput").value || 4);
+  await fetch("/api/reset", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{player_count}})}});
+  await loadState();
+}}
+loadState();
+setInterval(loadState, 2500);
 </script>
 </body>
 </html>

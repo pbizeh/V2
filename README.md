@@ -45,13 +45,33 @@ git push -u origin main
    - Runtime: `Python`
    - Build command: `pip install -r requirements.txt`
    - Start command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-4. After deploy, copy the Render URL.
-5. Edit `game_config.json`:
+4. Open the Render service's **Environment** page.
+5. Add your OpenAI key:
+   - Key: `OPENAI_API_KEY`
+   - Value: paste your OpenAI API key
+   - Click **Save Changes**.
+   - Render will redeploy or ask you to redeploy. Let it redeploy.
+6. After deploy, copy the Render URL.
+7. Edit `game_config.json`:
    - set `public_app_url` to the Render URL
    - set `device_secret` to a private shared secret
-6. Edit ESP32 `config.py`:
+8. Edit ESP32 `config.py`:
    - set `APP_BASE_URL` to the Render URL
    - set `DEVICE_SECRET` to the same value as `game_config.json`
+
+The game-master dashboard is available at:
+
+```text
+/dashboard
+```
+
+For example:
+
+```text
+https://your-render-app-name.onrender.com/dashboard
+```
+
+The dashboard shows progress, next step, last printed card, recent print log, player count, generated persona names, and whether `OPENAI_API_KEY` is set. It never displays the key itself.
 
 ## ESP32 Setup
 
