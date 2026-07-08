@@ -1,0 +1,262 @@
+import gc
+import time
+import json
+import network
+import urequests
+from machine import Pin, UART
+
+import config
+
+
+printer = UART(
+    config.PRINTER_UART_ID,
+    baudrate=config.PRINTER_BAUD,
+    bits=8,
+    parity=None,
+    stop=1,
+    tx=config.PRINTER_TX_PIN,
+    rx=config.PRINTER_RX_PIN,
+    timeout=config.PRINTER_TIMEOUT_MS,
+)
+
+button = Pin(config.BUTTON_PIN, Pin.IN, Pin.PULL_UP)
+status_led = Pin(config.STATUS_LED_PIN, Pin.OUT) if config.STATUS_LED_PIN is not None else None
+
+
+def led(value):
+    if status_led:
+        status_led.value(1 if value else 0)
+
+
+def write(data, delay_ms=None):
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    if data:
+        printer.write(data)
+        time.sleep_ms(config.PRINTER_WRITE_DELAY_MS if delay_ms is None else delay_ms)
+
+
+def clamp(value, minimum, maximum):
+    return max(minimum, min(maximum, int(value)))
+
+
+def printer_init():
+    write(b"\x1b\x40", 250)
+    write(b"\x1b\x37" + bytes((
+        clamp(config.PRINTER_HEAT_DOTS, 1, 255),
+        clamp(config.PRINTER_HEAT_TIME, 1, 255),
+        clamp(config.PRINTER_HEAT_INTERVAL, 1, 255),
+    )))
+    write(b"\x12\x23" + bytes(((clamp(config.PRINTER_BREAK_TIME, 0, 7) << 5) | clamp(config.PRINTER_DENSITY, 0, 31),)))
+    write(b"\x1b\x61\x00")
+    write(b"\x1d\x21\x00")
+    write(b"\x1b\x45\x00")
+
+
+def feed(lines=None):
+    write(b"\n" * int(lines if lines is not None else config.FEED_LINES_AFTER_CARD), 60)
+
+
+def center():
+    write(b"\x1b\x61\x01")
+
+
+def left():
+    write(b"\x1b\x61\x00")
+
+
+def bold(on=True):
+    write(b"\x1b\x45" + (b"\x01" if on else b"\x00"))
+
+
+def size(width=1, height=1):
+    width = clamp(width, 1, 8)
+    height = clamp(height, 1, 8)
+    write(b"\x1d\x21" + bytes((((width - 1) << 4) | (height - 1),)))
+
+
+def cut_if_available():
+    if config.PRINTER_SEND_CUT:
+        write(b"\x1d\x56\x00", 120)
+
+
+def print_qr(payload):
+    if not payload:
+        return
+    data = payload.encode("utf-8")
+    store_len = len(data) + 3
+    p_l = store_len & 0xFF
+    p_h = (store_len >> 8) & 0xFF
+    center()
+    write(b"\x1d\x28\x6b\x04\x00\x31\x41\x32\x00")
+    write(b"\x1d\x28\x6b\x03\x00\x31\x43" + bytes((clamp(config.QR_MODULE_SIZE, 1, 16),)))
+    write(b"\x1d\x28\x6b\x03\x00\x31\x45" + bytes((clamp(config.QR_ERROR_CORRECTION, 48, 51),)))
+    write(b"\x1d\x28\x6b" + bytes((p_l, p_h)) + b"\x31\x50\x30" + data)
+    write(b"\x1d\x28\x6b\x03\x00\x31\x51\x30", config.QR_PRINT_DELAY_MS)
+    left()
+
+
+def normalize_text(text):
+    text = str(text or "")
+    replacements = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2026": "...",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def wrap_line(line, width):
+    words = line.split()
+    out = []
+    current = ""
+    for word in words:
+        if not current:
+            current = word
+        elif len(current) + 1 + len(word) <= width:
+            current += " " + word
+        else:
+            out.append(current)
+            current = word
+    if current:
+        out.append(current)
+    return out or [""]
+
+
+def print_wrapped(text, width=None):
+    width = int(width or config.PRINTER_TEXT_COLUMNS)
+    for raw in normalize_text(text).split("\n"):
+        for line in wrap_line(raw, width):
+            write(line + "\n")
+
+
+def print_card(card):
+    printer_init()
+    center()
+    bold(True)
+    size(config.TITLE_WIDTH, config.TITLE_HEIGHT)
+    print_wrapped(card.get("title", config.DEFAULT_CARD_TITLE), config.TITLE_TEXT_COLUMNS)
+    size(1, 1)
+    bold(False)
+    left()
+    write(config.DIVIDER + "\n")
+
+    body = card.get("body") or card.get("text") or ""
+    print_wrapped(body)
+
+    footer = card.get("footer")
+    if footer:
+        write("\n")
+        print_wrapped(footer)
+
+    qr_url = card.get("qr_url")
+    if qr_url and config.PRINT_NATIVE_QR:
+        write("\n")
+        print_qr(qr_url)
+
+    write("\n" + config.DIVIDER + "\n")
+    feed()
+    cut_if_available()
+
+
+def connect_wifi():
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    if not wlan.isconnected():
+        print("Connecting to Wi-Fi:", config.WIFI_SSID)
+        wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+        deadline = time.ticks_add(time.ticks_ms(), config.WIFI_CONNECT_TIMEOUT_MS)
+        while not wlan.isconnected() and time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            led(not (status_led and status_led.value()))
+            time.sleep_ms(300)
+    led(wlan.isconnected())
+    if wlan.isconnected():
+        print("Connected:", wlan.ifconfig())
+    else:
+        print("Wi-Fi connection failed")
+    return wlan
+
+
+def wait_for_button_release():
+    while button.value() == 0:
+        time.sleep_ms(config.BUTTON_SAMPLE_MS)
+    time.sleep_ms(config.BUTTON_DEBOUNCE_MS)
+
+
+def wait_for_press():
+    while True:
+        if button.value() == 0:
+            time.sleep_ms(config.BUTTON_DEBOUNCE_MS)
+            if button.value() == 0:
+                wait_for_button_release()
+                return
+        time.sleep_ms(config.BUTTON_SAMPLE_MS)
+
+
+def post_next():
+    url = config.APP_BASE_URL.rstrip("/") + config.NEXT_ENDPOINT
+    payload = {
+        "device_id": config.DEVICE_ID,
+        "secret": config.DEVICE_SECRET,
+        "button": "START/NEXT",
+    }
+    headers = {"Content-Type": "application/json"}
+    response = None
+    try:
+        response = urequests.post(url, data=json.dumps(payload), headers=headers)
+        data = response.json()
+        return data
+    finally:
+        if response:
+            response.close()
+
+
+def print_status_card(message):
+    print_card({
+        "title": "PRINTER STATUS",
+        "body": message,
+        "footer": "Device: " + config.DEVICE_ID,
+    })
+
+
+def main():
+    time.sleep_ms(config.POWER_UP_DELAY_MS)
+    printer_init()
+    wlan = connect_wifi()
+    if config.PRINT_STARTUP_CARD:
+        status = "Online. Press START/NEXT." if wlan.isconnected() else "No Wi-Fi. Check config.py."
+        print_status_card(status)
+
+    while True:
+        print("Waiting for START/NEXT...")
+        wait_for_press()
+        if not wlan.isconnected():
+            wlan = connect_wifi()
+        if not wlan.isconnected():
+            print_status_card("No Wi-Fi. Cannot reach game app.")
+            continue
+
+        led(False)
+        try:
+            data = post_next()
+            card = data.get("card") if isinstance(data, dict) else None
+            if card:
+                print_card(card)
+            else:
+                print_status_card("No card returned by app.")
+        except Exception as exc:
+            print("App request failed:", exc)
+            print_status_card("App request failed. Try again.")
+        finally:
+            led(True)
+            gc.collect()
+            time.sleep_ms(config.AFTER_REQUEST_PAUSE_MS)
+
+
+main()

@@ -1,0 +1,30 @@
+{
+  "app_title": "Love Adventure V2",
+  "public_app_url": "",
+  "device_secret": "change-this-shared-secret",
+  "default_player_count": 4,
+  "story_portal_base_url": "",
+  "qr_card_text": "Scan this to submit the winning story.",
+  "fallback_round_title": "A new turn of the voyage",
+  "fallback_round_story": "Jim and Julia notice a strange invitation slipped under their cabin door.",
+  "persona_fold_line": "--- fold here ---",
+  "fallback_persona_names": ["Jim", "Julia"],
+  "persona_name_pool": ["Alex", "Sam", "Riley", "Morgan", "Taylor", "Jordan", "Casey", "Jamie", "Robin", "Avery", "Quinn", "Drew"],
+  "persona_traits": ["curious", "romantic", "restless", "tender", "bold", "careful", "funny", "dramatic"],
+  "desire_templates": [
+    "Secret desire: be invited into a risky plan.",
+    "Secret desire: have someone defend your choice.",
+    "Secret desire: leave the scene with a new promise.",
+    "Secret desire: make Jim or Julia change their mind."
+  ],
+  "prompts": {
+    "persona_generation": "Generate persona cards using the current AGE, QUEERNESS, and DIVERSITY settings. Keep each card short enough for a thermal printer.",
+    "round_title": "Create a short, playable round title for Jim and Julia on a seven-day ship ride.",
+    "round_story": "Create a story setup involving Jim, Julia, the ship, and the current persona list. End with a clear invitation for players to tell stories."
+  },
+  "instructions": {
+    "scenario_progression": "The START/NEXT button advances one non-empty playable spreadsheet cell to the right, then continues on the next row. The Phase column labels context and is not printed by itself.",
+    "printer_unit": "The ESP32 calls /api/device/next, receives one card as JSON, and prints it without a computer connection.",
+    "render": "Set the Render environment variable GAME_CONFIG_PATH only if you want to use a different config file path."
+  }
+}
