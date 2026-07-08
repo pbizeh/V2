@@ -71,7 +71,25 @@ For example:
 https://your-render-app-name.onrender.com/dashboard
 ```
 
-The dashboard shows progress, next step, last printed card, recent print log, player count, generated persona names, and whether `OPENAI_API_KEY` is set. It never displays the key itself.
+The main app has one `START/NEXT` button, player count, and three 1-100 controls:
+
+- `AGE`
+- `QUEERNESS`
+- `DIVERSITY`
+
+Every press creates the next print preview and keeps earlier prints in a feed below the most recent print. Reset is only available from the dashboard.
+
+The game-master dashboard shows progress, next step, last print preview, recent print log, player count, generated persona names, current AGE/QUEERNESS/DIVERSITY values, and whether `OPENAI_API_KEY` is set. It never displays the key itself.
+
+Tune AI behavior in `game_config.json`:
+
+- `openai.text_model`
+- `openai.system_prompt`
+- `prompts.persona_generation`
+- `prompts.round_title`
+- `prompts.round_story`
+- `default_settings`
+- `print_preview_columns`
 
 ## ESP32 Setup
 

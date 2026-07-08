@@ -3,6 +3,13 @@
   "public_app_url": "",
   "device_secret": "change-this-shared-secret",
   "default_player_count": 4,
+  "default_settings": {
+    "age": 50,
+    "queerness": 50,
+    "diversity": 50
+  },
+  "print_preview_columns": 42,
+  "print_preview_divider": "------------------------------------------",
   "story_portal_base_url": "",
   "qr_card_text": "Scan this to submit the winning story.",
   "fallback_round_title": "A new turn of the voyage",
@@ -17,6 +24,14 @@
     "Secret desire: leave the scene with a new promise.",
     "Secret desire: make Jim or Julia change their mind."
   ],
+  "openai": {
+    "enabled": true,
+    "text_model": "gpt-4.1-mini",
+    "temperature": 0.8,
+    "max_tokens": 700,
+    "timeout_seconds": 25,
+    "system_prompt": "You write concise, playable, thermal-printer-friendly cards for a live storytelling game. Keep output plain text. Do not use Markdown tables."
+  },
   "scenario_steps": [
     {
       "phase": "Start",
@@ -170,9 +185,9 @@
     }
   ],
   "prompts": {
-    "persona_generation": "Generate persona cards using the current AGE, QUEERNESS, and DIVERSITY settings. Keep each card short enough for a thermal printer.",
-    "round_title": "Create a short, playable round title for Jim and Julia on a seven-day ship ride.",
-    "round_story": "Create a story setup involving Jim, Julia, the ship, and the current persona list. End with a clear invitation for players to tell stories."
+    "persona_generation": "Generate {count} short persona cards for a thermal printer. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Each card should be numbered and include: name, age cue, pronouns or sexuality cue, 2-3 personality hashtags, and one secret desire after the fold line. Keep the whole output compact.",
+    "round_title": "Create one short playable round title for Jim and Julia on a seven-day ship ride. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Persona list: {persona_list}. Return only the title.",
+    "round_story": "Create one concise story setup for Jim, Julia, and these passengers: {persona_list}. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. End with a clear invitation for players to tell stories. Keep it short enough for a thermal printer."
   },
   "instructions": {
     "scenario_progression": "The START/NEXT button advances one entry in scenario_steps. Scenarios.xlsx is reference only and is not read by the app.",

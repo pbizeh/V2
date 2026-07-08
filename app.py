@@ -1,6 +1,8 @@
 import json
 import os
 import random
+import urllib.error
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,10 @@ class DeviceNext(BaseModel):
     button: str = "START/NEXT"
 
 
+class NextRequest(BaseModel):
+    settings: dict[str, int] | None = None
+
+
 def read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
     if not path.exists():
         return fallback
@@ -40,15 +46,23 @@ def load_config() -> dict[str, Any]:
 
 def default_state() -> dict[str, Any]:
     cfg = load_config()
+    default_settings = cfg.get("default_settings", {})
     return {
         "game_id": str(uuid.uuid4())[:8],
         "cursor": 0,
         "presses": 0,
         "player_count": int(cfg.get("default_player_count", 4)),
+        "settings": {
+            "age": int(default_settings.get("age", 50)),
+            "queerness": int(default_settings.get("queerness", 50)),
+            "diversity": int(default_settings.get("diversity", 50)),
+        },
         "captain_index": 0,
         "scores": {},
         "persona_names": [],
         "last_card": None,
+        "last_print": None,
+        "prints": [],
         "log": [],
     }
 
@@ -67,6 +81,23 @@ def reset_state(player_count: int | None = None) -> dict[str, Any]:
         state["player_count"] = max(1, min(12, int(player_count)))
     save_state(state)
     return state
+
+
+def clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = fallback
+    return max(minimum, min(maximum, number))
+
+
+def normalize_settings(settings: dict[str, Any] | None, fallback: dict[str, Any] | None = None) -> dict[str, int]:
+    fallback = fallback or {}
+    return {
+        "age": clamp_int((settings or {}).get("age"), 1, 100, clamp_int(fallback.get("age"), 1, 100, 50)),
+        "queerness": clamp_int((settings or {}).get("queerness"), 1, 100, clamp_int(fallback.get("queerness"), 1, 100, 50)),
+        "diversity": clamp_int((settings or {}).get("diversity"), 1, 100, clamp_int(fallback.get("diversity"), 1, 100, 50)),
+    }
 
 
 def load_scenario_steps(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -102,6 +133,63 @@ def prompt_text(key: str, cfg: dict[str, Any]) -> str:
     return str((cfg.get("prompts") or {}).get(key, "")).strip()
 
 
+def render_template(text: str, state: dict[str, Any], cfg: dict[str, Any], extra: dict[str, Any] | None = None) -> str:
+    values = {
+        "age": state.get("settings", {}).get("age", 50),
+        "queerness": state.get("settings", {}).get("queerness", 50),
+        "diversity": state.get("settings", {}).get("diversity", 50),
+        "player_count": state.get("player_count", 4),
+        "persona_list": ", ".join(state.get("persona_names") or cfg.get("fallback_persona_names", [])),
+    }
+    if extra:
+        values.update(extra)
+    try:
+        return text.format(**values)
+    except (KeyError, ValueError):
+        return text
+
+
+def openai_chat(prompt: str, cfg: dict[str, Any]) -> str | None:
+    openai_cfg = cfg.get("openai", {})
+    if not openai_cfg.get("enabled", True):
+        return None
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    payload = {
+        "model": openai_cfg.get("text_model", "gpt-4.1-mini"),
+        "messages": [
+            {"role": "system", "content": openai_cfg.get("system_prompt", "You write concise printable game cards.")},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": float(openai_cfg.get("temperature", 0.8)),
+        "max_tokens": int(openai_cfg.get("max_tokens", 600)),
+    }
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=int(openai_cfg.get("timeout_seconds", 25))) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return data["choices"][0]["message"]["content"].strip()
+    except (urllib.error.URLError, urllib.error.HTTPError, KeyError, IndexError, json.JSONDecodeError, TimeoutError):
+        return None
+
+
+def ai_or_fallback(prompt_key: str, fallback_key: str, state: dict[str, Any], cfg: dict[str, Any], extra: dict[str, Any] | None = None) -> str:
+    prompt = render_template(prompt_text(prompt_key, cfg), state, cfg, extra)
+    generated = openai_chat(prompt, cfg) if prompt else None
+    if generated:
+        return clean_text(generated)
+    return clean_text(render_template(str(cfg.get(fallback_key, "")), state, cfg, extra))
+
+
 def random_persona(state: dict[str, Any], cfg: dict[str, Any], index: int) -> str:
     first_names = cfg.get("persona_name_pool", ["Alex", "Sam", "Riley", "Morgan", "Taylor", "Jordan"])
     traits = cfg.get("persona_traits", ["curious", "romantic", "restless", "tender", "bold"])
@@ -119,10 +207,92 @@ def random_persona(state: dict[str, Any], cfg: dict[str, Any], index: int) -> st
     )
 
 
+def make_persona_cards(state: dict[str, Any], cfg: dict[str, Any]) -> str:
+    count = int(state.get("player_count", 4))
+    prompt = render_template(prompt_text("persona_generation", cfg), state, cfg, {"count": count})
+    generated = openai_chat(prompt, cfg) if prompt else None
+    if generated:
+        names = []
+        for line in generated.splitlines():
+            stripped = line.strip()
+            if stripped and stripped[0].isdigit() and "." in stripped:
+                candidate = stripped.split(".", 1)[1].strip().split(" ", 1)[0].strip(":,-")
+                if candidate:
+                    names.append(candidate)
+        if names:
+            state["persona_names"] = (state.get("persona_names", []) + names)[-30:]
+        return clean_text(generated)
+    return "\n\n".join(random_persona(state, cfg, i + 1) for i in range(count))
+
+
 def make_vote_papers(state: dict[str, Any]) -> str:
     count = int(state.get("player_count", 4))
     labels = ["C"] + [str(i) for i in range(2, count + 1)]
     return "Detach one vote token and pass it face down.\n\n" + "\n".join(f"[ {label} ]" for label in labels)
+
+
+def center_text(text: str, width: int) -> str:
+    return clean_text(text).strip().center(width)
+
+
+def wrap_text(text: str, width: int) -> list[str]:
+    words = clean_text(text).replace("\n", " \n ").split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        if word == "\n":
+            lines.append(current)
+            current = ""
+        elif not current:
+            current = word
+        elif len(current) + 1 + len(word) <= width:
+            current += " " + word
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> str:
+    width = int(cfg.get("print_preview_columns", 42))
+    divider = str(cfg.get("print_preview_divider", "-" * min(width, 42)))
+    lines = [
+        center_text(card.get("title", "PRINT"), width),
+        divider[:width],
+    ]
+    for paragraph in str(card.get("body", "")).split("\n"):
+        if paragraph.strip():
+            lines.extend(wrap_text(paragraph, width))
+        else:
+            lines.append("")
+    if card.get("qr_url"):
+        lines.append("")
+        lines.append(center_text("QR", width))
+        lines.extend(wrap_text(card["qr_url"], width))
+    footer = card.get("footer")
+    if footer:
+        lines.append("")
+        lines.extend(wrap_text(footer, width))
+    settings = state.get("settings", {})
+    lines.append(divider[:width])
+    lines.append(f"AGE {settings.get('age', 50)} | QUEERNESS {settings.get('queerness', 50)} | DIVERSITY {settings.get('diversity', 50)}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any], cursor: int) -> dict[str, Any]:
+    preview = render_print_preview(card, state, cfg)
+    return {
+        "id": str(uuid.uuid4())[:8],
+        "number": int(state.get("presses", 0)) + 1,
+        "step_index": cursor,
+        "title": card.get("title", "PRINT"),
+        "preview": preview,
+        "card": card,
+        "step": step,
+        "settings": state.get("settings", {}),
+    }
 
 
 def unique_portal_url(state: dict[str, Any], cfg: dict[str, Any]) -> str:
@@ -147,9 +317,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             body = make_vote_papers(state)
             title = f"{phase}: Vote Papers"
         else:
-            count = int(state.get("player_count", 4))
-            body = "\n\n".join(random_persona(state, cfg, i + 1) for i in range(count))
-            body = prompt_text("persona_generation", cfg) + "\n\n" + body if prompt_text("persona_generation", cfg) else body
+            body = make_persona_cards(state, cfg)
             title = f"{phase}: Persona Cards"
         return {"title": title, "body": body, "footer": footer}
 
@@ -163,38 +331,36 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
         }
 
     if kind == "generated_title" or "[title based on prompt response]" in lower:
-        title_prompt = prompt_text("round_title", cfg)
-        value = cfg.get("fallback_round_title", "A new turn of the voyage")
-        if title_prompt:
-            value = f"{value}\n\nPrompt note: {title_prompt}"
+        value = ai_or_fallback("round_title", "fallback_round_title", state, cfg)
 
     if kind == "generated_story" or "[story based on prompt response]" in lower:
-        story_prompt = prompt_text("round_story", cfg)
-        value = cfg.get("fallback_round_story", "Jim and Julia notice a strange invitation slipped under their cabin door.")
-        if story_prompt:
-            value = f"{value}\n\nPrompt note: {story_prompt}"
+        value = ai_or_fallback("round_story", "fallback_round_story", state, cfg)
 
     return {"title": title, "body": value, "footer": footer}
 
 
-def advance(state: dict[str, Any]) -> dict[str, Any]:
+def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = load_config()
     secret = cfg.get("device_secret")
     steps = load_scenario_steps(cfg)
     if not steps:
         raise HTTPException(status_code=500, detail="No scenario steps found in game_config.json")
+    state["settings"] = normalize_settings(settings, state.get("settings", {}))
     cursor = int(state.get("cursor", 0))
     if cursor >= len(steps):
         cursor = len(steps) - 1
     step = steps[cursor]
     card = build_card(step, state, cfg)
+    print_item = build_print(card, step, state, cfg, cursor)
     state["last_card"] = card
+    state["last_print"] = print_item
+    state["prints"] = (state.get("prints", []) + [print_item])[-50:]
     state["presses"] = int(state.get("presses", 0)) + 1
     state["cursor"] = min(cursor + 1, len(steps))
-    state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card})
+    state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item})
     state["device_secret_required"] = bool(secret)
     save_state(state)
-    return {"card": card, "state": public_state(state), "done": state["cursor"] >= len(steps)}
+    return {"card": card, "print": print_item, "state": public_state(state), "done": state["cursor"] >= len(steps)}
 
 
 def public_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -209,8 +375,11 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "player_count": state.get("player_count", 4),
         "captain_index": state.get("captain_index", 0),
         "scores": state.get("scores", {}),
+        "settings": normalize_settings(state.get("settings", {})),
         "persona_names": state.get("persona_names", []),
         "last_card": state.get("last_card"),
+        "last_print": state.get("last_print"),
+        "prints": state.get("prints", [])[-50:],
         "next_step": next_step,
         "recent_log": state.get("log", [])[-10:],
         "done": cursor >= len(steps),
@@ -240,8 +409,8 @@ async def dashboard() -> str:
 
 
 @app.post("/api/next")
-async def api_next() -> dict[str, Any]:
-    return advance(load_state())
+async def api_next(payload: NextRequest | None = None) -> dict[str, Any]:
+    return advance(load_state(), payload.settings if payload else None)
 
 
 @app.post("/api/reset")
@@ -274,15 +443,21 @@ HTML = """
   <style>
     :root {{ font-family: Arial, sans-serif; color: #171717; background: #f6f3ee; }}
     body {{ margin: 0; }}
-    main {{ max-width: 860px; margin: 0 auto; padding: 28px 18px; }}
+    main {{ max-width: 920px; margin: 0 auto; padding: 28px 18px 46px; }}
     h1 {{ margin: 0 0 18px; font-size: 30px; }}
     .panel {{ background: white; border: 1px solid #ddd6cc; border-radius: 8px; padding: 18px; }}
     .row {{ display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }}
     button {{ border: 0; border-radius: 8px; padding: 14px 18px; background: #111; color: white; font-weight: 700; cursor: pointer; }}
-    button.secondary {{ background: #6b6258; }}
-    input {{ padding: 11px; border: 1px solid #cfc7bd; border-radius: 6px; width: 80px; }}
+    input[type="number"] {{ padding: 11px; border: 1px solid #cfc7bd; border-radius: 6px; width: 80px; }}
+    input[type="range"] {{ width: min(240px, 70vw); }}
+    label.slider {{ display: grid; gap: 5px; min-width: 220px; font-weight: 700; }}
+    label.slider span {{ font-weight: 400; color: #655d54; }}
     pre {{ white-space: pre-wrap; background: #fbfaf8; border: 1px solid #e6ded4; border-radius: 8px; padding: 14px; min-height: 180px; }}
     .muted {{ color: #655d54; }}
+    .print-feed {{ display: grid; gap: 12px; margin-top: 16px; }}
+    .print-feed article {{ border-top: 1px solid #e6ded4; padding-top: 12px; }}
+    .print-feed h3 {{ margin: 0 0 8px; font-size: 16px; }}
+    .current-label {{ margin: 18px 0 8px; font-weight: 700; }}
   </style>
 </head>
 <body>
@@ -291,32 +466,64 @@ HTML = """
   <section class="panel">
     <div class="row">
       <button onclick="next()">START/NEXT</button>
-      <button class="secondary" onclick="resetGame()">Reset</button>
       <label>Players <input id="players" type="number" min="1" max="12"></label>
     </div>
+    <div class="row" style="margin-top: 16px;">
+      <label class="slider">AGE <input id="age" type="range" min="1" max="100"><span id="ageValue"></span></label>
+      <label class="slider">QUEERNESS <input id="queerness" type="range" min="1" max="100"><span id="queernessValue"></span></label>
+      <label class="slider">DIVERSITY <input id="diversity" type="range" min="1" max="100"><span id="diversityValue"></span></label>
+    </div>
     <p class="muted" id="progress"></p>
+    <p class="current-label">Most recent print</p>
     <pre id="card"></pre>
+    <div id="feed" class="print-feed"></div>
   </section>
 </main>
 <script>
 let state = {state};
+const sliderIds = ["age", "queerness", "diversity"];
+function currentSettings() {{
+  return {{
+    age: Number(document.getElementById("age").value || 50),
+    queerness: Number(document.getElementById("queerness").value || 50),
+    diversity: Number(document.getElementById("diversity").value || 50)
+  }};
+}}
+function syncSliderLabels() {{
+  for (const id of sliderIds) {{
+    document.getElementById(id + "Value").textContent = document.getElementById(id).value;
+  }}
+}}
+function printText(item) {{
+  if (!item) return "Press START/NEXT to create the first print.";
+  return item.preview || `${{item.card?.title || ""}}\\n\\n${{item.card?.body || ""}}`;
+}}
 function draw() {{
   document.getElementById("players").value = state.player_count || 4;
+  const settings = state.settings || {{}};
+  for (const id of sliderIds) {{
+    const el = document.getElementById(id);
+    if (!el.dataset.touched) el.value = settings[id] || 50;
+  }}
+  syncSliderLabels();
   document.getElementById("progress").textContent = `Game ${{state.game_id}} | Step ${{state.cursor}} of ${{state.total_steps}} | Presses ${{state.presses}}`;
-  const card = state.last_card;
-  document.getElementById("card").textContent = card ? `${{card.title}}\\n\\n${{card.body}}\\n\\n${{card.footer || ""}}${{card.qr_url ? "\\n" + card.qr_url : ""}}` : "Press START/NEXT to begin.";
+  document.getElementById("card").textContent = printText(state.last_print);
+  const older = (state.prints || []).slice(0, -1).reverse();
+  document.getElementById("feed").innerHTML = older.map(item => `<article><h3>Print ${{item.number}}: ${{item.title}}</h3><pre>${{printText(item).replace(/[&<>]/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}}[c]))}}</pre></article>`).join("");
 }}
 async function next() {{
-  const res = await fetch("/api/next", {{method: "POST"}});
+  const res = await fetch("/api/next", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{settings: currentSettings()}})}});
   const data = await res.json();
   state = data.state;
   draw();
 }}
-async function resetGame() {{
-  const player_count = Number(document.getElementById("players").value || 4);
-  const res = await fetch("/api/reset", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{player_count}})}});
-  state = await res.json();
-  draw();
+for (const id of sliderIds) {{
+  document.addEventListener("input", event => {{
+    if (event.target && event.target.id === id) {{
+      event.target.dataset.touched = "1";
+      syncSliderLabels();
+    }}
+  }});
 }}
 draw();
 </script>
@@ -375,6 +582,10 @@ DASHBOARD_HTML = """
     <div class="panel"><h2>Players</h2><div class="metric" id="playersMetric">-</div></div>
     <div class="panel"><h2>OpenAI Key</h2><div class="metric" id="openaiKey">-</div></div>
     <div class="panel wide">
+      <h2>Controls</h2>
+      <pre id="controlSettings">-</pre>
+    </div>
+    <div class="panel wide">
       <h2>Next Step</h2>
       <pre id="nextStep">Loading...</pre>
     </div>
@@ -406,6 +617,10 @@ function cardText(card) {{
   if (!card) return "No card yet.";
   return `${{card.title || ""}}\\n\\n${{card.body || ""}}\\n\\n${{card.footer || ""}}${{card.qr_url ? "\\n" + card.qr_url : ""}}`;
 }}
+function printText(item) {{
+  if (!item) return "No print yet.";
+  return item.preview || cardText(item.card);
+}}
 function stepText(step) {{
   if (!step) return "The configured scenario is complete.";
   return `${{step.phase || "Game"}}: ${{step.title || "Step"}}\\nKind: ${{step.kind || "text"}}\\n\\n${{step.text || ""}}`;
@@ -418,15 +633,17 @@ async function loadState() {{
   document.getElementById("presses").textContent = state.presses || 0;
   document.getElementById("playersMetric").textContent = state.player_count || 0;
   document.getElementById("openaiKey").textContent = state.openai_api_key_configured ? "Set" : "Missing";
+  const settings = state.settings || {{}};
+  document.getElementById("controlSettings").textContent = `AGE: ${{settings.age || 50}}\\nQUEERNESS: ${{settings.queerness || 50}}\\nDIVERSITY: ${{settings.diversity || 50}}`;
   document.getElementById("playersInput").value = state.player_count || 4;
   document.getElementById("nextStep").textContent = stepText(state.next_step);
-  document.getElementById("lastCard").textContent = cardText(state.last_card);
+  document.getElementById("lastCard").textContent = printText(state.last_print);
   document.getElementById("personaNames").textContent = (state.persona_names || []).join(", ") || "-";
   const rows = document.getElementById("logRows");
   rows.innerHTML = "";
   for (const item of (state.recent_log || []).slice().reverse()) {{
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${{Number(item.cursor) + 1}}</td><td>${{item.step?.phase || ""}}: ${{item.step?.title || ""}}</td><td><pre>${{cardText(item.card)}}</pre></td>`;
+    tr.innerHTML = `<td>${{Number(item.cursor) + 1}}</td><td>${{item.step?.phase || ""}}: ${{item.step?.title || ""}}</td><td><pre>${{printText(item.print)}}</pre></td>`;
     rows.appendChild(tr);
   }}
 }}
