@@ -3,7 +3,7 @@ import time
 import json
 import network
 import urequests
-from machine import Pin, UART
+from machine import Pin, UART, reset_cause
 
 import config
 
@@ -21,6 +21,7 @@ printer = UART(
 
 button = Pin(config.BUTTON_PIN, Pin.IN, Pin.PULL_UP)
 status_led = Pin(config.STATUS_LED_PIN, Pin.OUT) if config.STATUS_LED_PIN is not None else None
+boot_ms = time.ticks_ms()
 
 
 def led(value):
@@ -199,24 +200,6 @@ def wait_for_press():
         time.sleep_ms(config.BUTTON_SAMPLE_MS)
 
 
-def post_next():
-    url = config.APP_BASE_URL.rstrip("/") + config.NEXT_ENDPOINT
-    payload = {
-        "device_id": config.DEVICE_ID,
-        "secret": config.DEVICE_SECRET,
-        "button": "START/NEXT",
-    }
-    headers = {"Content-Type": "application/json"}
-    response = None
-    try:
-        response = urequests.post(url, data=json.dumps(payload), headers=headers)
-        data = response.json()
-        return data
-    finally:
-        if response:
-            response.close()
-
-
 def print_status_card(message):
     print_card({
         "title": "PRINTER STATUS",
@@ -225,12 +208,74 @@ def print_status_card(message):
     })
 
 
+def post_json(path, payload):
+    url = config.APP_BASE_URL.rstrip("/") + path
+    headers = {"Content-Type": "application/json"}
+    response = None
+    try:
+        response = urequests.post(url, data=json.dumps(payload), headers=headers)
+        status_code = getattr(response, "status_code", 0)
+        try:
+            data = response.json()
+        except Exception:
+            data = {"detail": getattr(response, "text", "")}
+        return {
+            "ok": 200 <= int(status_code) < 300,
+            "status_code": status_code,
+            "data": data,
+        }
+    finally:
+        if response:
+            response.close()
+
+
+def device_payload(status=None, message=None):
+    payload = {
+        "device_id": config.DEVICE_ID,
+        "secret": config.DEVICE_SECRET,
+    }
+    if status:
+        payload["status"] = status
+    if message:
+        payload["message"] = message
+    return payload
+
+
+def short_detail(data):
+    if isinstance(data, dict):
+        detail = data.get("detail") or data.get("error") or data.get("message")
+        if detail:
+            return str(detail)
+    return str(data)[:160]
+
+
+def check_app_status(status="online", message=None):
+    path = getattr(config, "STATUS_ENDPOINT", "/api/device/status")
+    return post_json(path, device_payload(status, message))
+
+
 def main():
     time.sleep_ms(config.POWER_UP_DELAY_MS)
     printer_init()
     wlan = connect_wifi()
     if config.PRINT_STARTUP_CARD:
         status = "Online. Press START/NEXT." if wlan.isconnected() else "No Wi-Fi. Check config.py."
+        status += "\nReset cause: " + str(reset_cause())
+        status += "\nBoot ms: " + str(boot_ms)
+        if wlan.isconnected():
+            try:
+                result = check_app_status("startup", "Startup check")
+                data = result.get("data")
+                if result.get("ok") and isinstance(data, dict) and data.get("ok"):
+                    state = data.get("state") or {}
+                    status += "\nApp check: OK"
+                    status += "\nProgress: " + str(state.get("cursor")) + "/" + str(state.get("total_steps"))
+                else:
+                    status += "\nApp check: FAILED"
+                    status += "\nHTTP: " + str(result.get("status_code"))
+                    status += "\nDetail: " + short_detail(data)
+            except Exception as exc:
+                status += "\nApp check error: " + str(exc)
         print_status_card(status)
 
     while True:
@@ -244,15 +289,24 @@ def main():
 
         led(False)
         try:
-            data = post_next()
+            result = post_json(config.NEXT_ENDPOINT, {
+                "device_id": config.DEVICE_ID,
+                "secret": config.DEVICE_SECRET,
+                "button": "START/NEXT",
+            })
+            data = result.get("data")
             card = data.get("card") if isinstance(data, dict) else None
-            if card:
+            if result.get("ok") and card:
                 print_card(card)
             else:
-                print_status_card("No card returned by app.")
+                print_status_card(
+                    "No card returned by app."
+                    + "\nHTTP: " + str(result.get("status_code"))
+                    + "\nDetail: " + short_detail(data)
+                )
         except Exception as exc:
             print("App request failed:", exc)
-            print_status_card("App request failed. Try again.")
+            print_status_card("App request failed. Try again.\n" + str(exc)[:160])
         finally:
             led(True)
             gc.collect()

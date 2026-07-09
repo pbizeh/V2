@@ -122,6 +122,19 @@ Value: your OpenAI API key
 
 The dashboard shows `OpenAI Key: Set` when the variable exists. It never shows the key value.
 
+## ESP32 Device Secret On Render
+
+The ESP32 and the Render app must share the same device secret. Prefer setting the real value in Render instead of committing it to GitHub.
+
+In Render service `V2` -> **Environment**, add:
+
+```text
+Key: DEVICE_SECRET
+Value: the same value used in ESP32 config.py
+```
+
+If `DEVICE_SECRET` is not set in Render, the app falls back to `device_secret` in `game_config.json`.
+
 ## Render Deployment
 
 Current Render settings:
@@ -173,6 +186,7 @@ Main endpoints:
 - `POST /api/next` - browser controller advances the game.
 - `POST /api/reset` - dashboard resets the game.
 - `POST /api/device/next` - ESP32 advances the game and receives the next printable card.
+- `POST /api/device/status` - ESP32 health check; reports whether the app can be reached and whether the secret is accepted.
 - `GET /portal/{game_id}/{step}` - placeholder story portal page for QR cards.
 
 Example browser advance request:
@@ -256,3 +270,5 @@ When hardware is attached:
 - Do not commit API keys.
 - The online state is stored in `game_state.json` on the Render instance. Free Render instances may reset local disk state when redeployed or restarted.
 - If the dashboard shows `OpenAI Key: Missing`, add `OPENAI_API_KEY` in Render Environment settings.
+- If the printer startup card says `App check: FAILED` and `Detail: Bad device secret`, set Render `DEVICE_SECRET` to match ESP32 `config.py`.
+- If the printer says Wi-Fi is connected but the dashboard still shows `No device check yet`, check `APP_BASE_URL`, Wi-Fi internet access, and the Render service status.

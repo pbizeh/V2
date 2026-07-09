@@ -4,6 +4,7 @@ import random
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,13 @@ class DeviceNext(BaseModel):
     button: str = "START/NEXT"
 
 
+class DeviceStatus(BaseModel):
+    device_id: str = "printer-001"
+    secret: str | None = None
+    status: str | None = None
+    message: str | None = None
+
+
 class NextRequest(BaseModel):
     settings: dict[str, int] | None = None
 
@@ -42,6 +50,10 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def load_config() -> dict[str, Any]:
     return read_json(CONFIG_PATH, {})
+
+
+def device_secret(cfg: dict[str, Any] | None = None) -> str | None:
+    return os.getenv("DEVICE_SECRET") or (cfg or load_config()).get("device_secret")
 
 
 def default_state() -> dict[str, Any]:
@@ -89,6 +101,35 @@ def clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
     except (TypeError, ValueError):
         number = fallback
     return max(minimum, min(maximum, number))
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def validate_device_secret(secret: str | None, cfg: dict[str, Any]) -> None:
+    expected_secret = device_secret(cfg)
+    if expected_secret and secret != expected_secret:
+        raise HTTPException(status_code=403, detail="Bad device secret")
+
+
+def record_device_status(
+    state: dict[str, Any],
+    device_id: str,
+    status: str,
+    message: str | None = None,
+    accepted: bool = True,
+) -> dict[str, Any]:
+    hardware = {
+        "device_id": device_id,
+        "status": status,
+        "message": message or "",
+        "accepted": accepted,
+        "last_seen": utc_now(),
+    }
+    state["hardware"] = hardware
+    save_state(state)
+    return hardware
 
 
 def normalize_settings(settings: dict[str, Any] | None, fallback: dict[str, Any] | None = None) -> dict[str, int]:
@@ -341,7 +382,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
 
 def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = load_config()
-    secret = cfg.get("device_secret")
+    secret = device_secret(cfg)
     steps = load_scenario_steps(cfg)
     if not steps:
         raise HTTPException(status_code=500, detail="No scenario steps found in game_config.json")
@@ -382,6 +423,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "prints": state.get("prints", [])[-50:],
         "next_step": next_step,
         "recent_log": state.get("log", [])[-10:],
+        "hardware": state.get("hardware"),
         "done": cursor >= len(steps),
         "openai_api_key_configured": bool(os.getenv("OPENAI_API_KEY")),
     }
@@ -422,10 +464,56 @@ async def api_reset(request: Request) -> dict[str, Any]:
 @app.post("/api/device/next")
 async def api_device_next(payload: DeviceNext) -> JSONResponse:
     cfg = load_config()
-    expected_secret = cfg.get("device_secret")
-    if expected_secret and payload.secret != expected_secret:
-        raise HTTPException(status_code=403, detail="Bad device secret")
+    state = load_state()
+    try:
+        validate_device_secret(payload.secret, cfg)
+    except HTTPException:
+        record_device_status(state, payload.device_id, "rejected", "Bad device secret", accepted=False)
+        raise
+    record_device_status(state, payload.device_id, "next", "START/NEXT accepted")
     return JSONResponse(advance(load_state()))
+
+
+@app.post("/api/device/status")
+async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
+    cfg = load_config()
+    state = load_state()
+    try:
+        validate_device_secret(payload.secret, cfg)
+    except HTTPException:
+        hardware = record_device_status(
+            state,
+            payload.device_id,
+            "rejected",
+            "Bad device secret",
+            accepted=False,
+        )
+        return {
+            "ok": False,
+            "detail": "Bad device secret",
+            "hardware": hardware,
+            "state": public_state(load_state()),
+        }
+
+    hardware = record_device_status(
+        state,
+        payload.device_id,
+        payload.status or "online",
+        payload.message or "Device status check accepted",
+    )
+    public = public_state(load_state())
+    return {
+        "ok": True,
+        "detail": "Device accepted",
+        "hardware": hardware,
+        "state": {
+            "game_id": public["game_id"],
+            "cursor": public["cursor"],
+            "total_steps": public["total_steps"],
+            "presses": public["presses"],
+            "next_step": public["next_step"],
+        },
+    }
 
 
 @app.get("/portal/{game_id}/{step}", response_class=HTMLResponse)
@@ -582,6 +670,10 @@ DASHBOARD_HTML = """
     <div class="panel"><h2>Players</h2><div class="metric" id="playersMetric">-</div></div>
     <div class="panel"><h2>OpenAI Key</h2><div class="metric" id="openaiKey">-</div></div>
     <div class="panel wide">
+      <h2>Printer Unit</h2>
+      <pre id="hardwareStatus">No device check yet.</pre>
+    </div>
+    <div class="panel wide">
       <h2>Controls</h2>
       <pre id="controlSettings">-</pre>
     </div>
@@ -633,6 +725,10 @@ async function loadState() {{
   document.getElementById("presses").textContent = state.presses || 0;
   document.getElementById("playersMetric").textContent = state.player_count || 0;
   document.getElementById("openaiKey").textContent = state.openai_api_key_configured ? "Set" : "Missing";
+  const hardware = state.hardware || null;
+  document.getElementById("hardwareStatus").textContent = hardware
+    ? `Device: ${{hardware.device_id || "-"}}\\nStatus: ${{hardware.status || "-"}}\\nAccepted: ${{hardware.accepted ? "yes" : "no"}}\\nLast seen: ${{hardware.last_seen || "-"}}\\nMessage: ${{hardware.message || ""}}`
+    : "No device check yet.";
   const settings = state.settings || {{}};
   document.getElementById("controlSettings").textContent = `AGE: ${{settings.age || 50}}\\nQUEERNESS: ${{settings.queerness || 50}}\\nDIVERSITY: ${{settings.diversity || 50}}`;
   document.getElementById("playersInput").value = state.player_count || 4;
