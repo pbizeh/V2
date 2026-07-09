@@ -34,6 +34,8 @@ class DeviceStatus(BaseModel):
     secret: str | None = None
     status: str | None = None
     message: str | None = None
+    settings: dict[str, int] | None = None
+    player_count: int | None = None
 
 
 class NextRequest(BaseModel):
@@ -132,6 +134,18 @@ def record_device_status(
     state["hardware"] = hardware
     save_state(state)
     return hardware
+
+
+def apply_hardware_controls(
+    state: dict[str, Any],
+    settings: dict[str, Any] | None = None,
+    player_count: int | None = None,
+) -> dict[str, Any]:
+    if settings:
+        state["settings"] = normalize_settings(settings, state.get("settings", {}))
+    if player_count:
+        state["player_count"] = max(4, min(6, int(player_count)))
+    return state
 
 
 def normalize_settings(settings: dict[str, Any] | None, fallback: dict[str, Any] | None = None) -> dict[str, int]:
@@ -472,8 +486,7 @@ async def api_device_next(payload: DeviceNext) -> JSONResponse:
     except HTTPException:
         record_device_status(state, payload.device_id, "rejected", "Bad device secret", accepted=False)
         raise
-    if payload.player_count:
-        state["player_count"] = max(4, min(6, int(payload.player_count)))
+    state = apply_hardware_controls(state, payload.settings, payload.player_count)
     record_device_status(
         state,
         payload.device_id,
@@ -505,7 +518,7 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         }
 
     hardware = record_device_status(
-        state,
+        apply_hardware_controls(state, payload.settings, payload.player_count),
         payload.device_id,
         payload.status or "online",
         payload.message or "Device status check accepted",
@@ -600,7 +613,7 @@ function draw() {{
   const settings = state.settings || {{}};
   for (const id of sliderIds) {{
     const el = document.getElementById(id);
-    if (!el.dataset.touched) el.value = settings[id] || 50;
+    el.value = settings[id] || 50;
   }}
   syncSliderLabels();
   document.getElementById("progress").textContent = `Game ${{state.game_id}} | Step ${{state.cursor}} of ${{state.total_steps}} | Presses ${{state.presses}}`;
@@ -614,15 +627,20 @@ async function next() {{
   state = data.state;
   draw();
 }}
+async function loadState() {{
+  const res = await fetch("/api/state", {{cache: "no-store"}});
+  state = await res.json();
+  draw();
+}}
 for (const id of sliderIds) {{
   document.addEventListener("input", event => {{
     if (event.target && event.target.id === id) {{
-      event.target.dataset.touched = "1";
       syncSliderLabels();
     }}
   }});
 }}
 draw();
+setInterval(loadState, 1000);
 </script>
 </body>
 </html>

@@ -27,6 +27,7 @@ boot_ms = time.ticks_ms()
 player_switch_a = Pin(getattr(config, "PLAYER_SWITCH_PIN_A", 15), Pin.IN, Pin.PULL_UP)
 player_switch_b = Pin(getattr(config, "PLAYER_SWITCH_PIN_B", 16), Pin.IN, Pin.PULL_UP)
 
+setup_errors = []
 pot_adcs = {}
 for control in getattr(config, "POT_CONTROLS", []):
     try:
@@ -37,7 +38,9 @@ for control in getattr(config, "POT_CONTROLS", []):
             adc.width(getattr(ADC, "WIDTH_12BIT", 3))
         pot_adcs[control["name"]] = adc
     except Exception as exc:
-        print("Pot setup failed:", control, exc)
+        message = "Pot setup failed: " + str(control.get("name")) + " GPIO" + str(control.get("pin")) + " " + str(exc)
+        setup_errors.append(message)
+        print(message)
 
 
 def led(value):
@@ -110,12 +113,15 @@ def read_player_count():
 
 def control_report():
     settings = read_control_settings()
-    return (
+    report = (
         "Players: " + str(read_player_count())
         + "\nAGE: " + str(settings.get("age"))
         + "\nQUEERNESS: " + str(settings.get("queerness"))
         + "\nDIVERSITY: " + str(settings.get("diversity"))
     )
+    if setup_errors:
+        report += "\n" + "\n".join(setup_errors[:4])
+    return report
 
 
 def printer_init():
@@ -320,6 +326,15 @@ def wait_for_press():
         time.sleep_ms(config.BUTTON_SAMPLE_MS)
 
 
+def button_pressed():
+    if button.value() == 0:
+        time.sleep_ms(config.BUTTON_DEBOUNCE_MS)
+        if button.value() == 0:
+            wait_for_button_release()
+            return True
+    return False
+
+
 def print_status_card(message):
     print_card({
         "title": "PRINTER STATUS",
@@ -362,6 +377,13 @@ def device_payload(status=None, message=None):
     return payload
 
 
+def control_payload(status="controls", message=None):
+    payload = device_payload(status, message)
+    payload["settings"] = read_control_settings()
+    payload["player_count"] = read_player_count()
+    return payload
+
+
 def short_detail(data):
     if isinstance(data, dict):
         detail = data.get("detail") or data.get("error") or data.get("message")
@@ -375,6 +397,36 @@ def check_app_status(status="online", message=None):
     return post_json(path, device_payload(status, message))
 
 
+def post_control_status(status="controls", message="Live controls"):
+    path = getattr(config, "STATUS_ENDPOINT", "/api/device/status")
+    return post_json(path, control_payload(status, message))
+
+
+def wait_for_press_with_live_controls(wlan):
+    live_enabled = bool(getattr(config, "LIVE_CONTROL_STATUS_ENABLED", True))
+    interval = int(getattr(config, "CONTROL_STATUS_INTERVAL_MS", 2000))
+    next_status_at = time.ticks_ms()
+    while True:
+        if button_pressed():
+            return wlan
+
+        if live_enabled and wlan.isconnected() and time.ticks_diff(time.ticks_ms(), next_status_at) >= 0:
+            try:
+                result = post_control_status()
+                data = result.get("data")
+                if not (result.get("ok") and isinstance(data, dict) and data.get("ok")):
+                    print("Control status failed:", result.get("status_code"), short_detail(data))
+            except Exception as exc:
+                print("Control status error:", exc)
+            next_status_at = time.ticks_add(time.ticks_ms(), interval)
+
+        if not wlan.isconnected():
+            wlan = connect_wifi()
+            next_status_at = time.ticks_ms()
+
+        time.sleep_ms(config.BUTTON_SAMPLE_MS)
+
+
 def main():
     time.sleep_ms(config.POWER_UP_DELAY_MS)
     printer_init()
@@ -386,7 +438,7 @@ def main():
         if wlan.isconnected():
             status += "\n" + network_report(wlan)
             try:
-                result = check_app_status("startup", "Startup check")
+                result = post_control_status("startup", "Startup check")
                 data = result.get("data")
                 if result.get("ok") and isinstance(data, dict) and data.get("ok"):
                     state = data.get("state") or {}
@@ -403,7 +455,7 @@ def main():
 
     while True:
         print("Waiting for START/NEXT...")
-        wait_for_press()
+        wlan = wait_for_press_with_live_controls(wlan)
         if not wlan.isconnected():
             wlan = connect_wifi()
         if not wlan.isconnected():
