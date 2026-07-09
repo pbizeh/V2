@@ -249,6 +249,8 @@ Wire the thermal printer UART:
 
 Wire the physical `START/NEXT` button between GPIO4 and GND.
 
+Important button note: the button must use `GPIO4 / IO4`, not `EN`, `RST`, `BOOT`, `3V3`, `5V`, or `VIN`. If pressing `START/NEXT` prints the startup `PRINTER STATUS` card again, the ESP32 is rebooting and the button is wired to reset/power instead of GPIO4.
+
 All printer tuning values live in ESP32 `config.py`, including baud rate, heat settings, density, line width, feed lines, QR settings, and button timing.
 
 ## Current Hardware Flow
@@ -263,6 +265,43 @@ When hardware is attached:
 4. Render app advances the same game state.
 5. ESP32 receives the next card JSON.
 6. ESP32 prints the card on the thermal printer.
+
+## Hardware Troubleshooting
+
+The startup status card is the first thing to read.
+
+Good startup:
+
+```text
+Online. Press START/NEXT.
+App check: OK
+Progress: 0/25
+```
+
+This means Wi-Fi, Render, the device endpoint, and the device secret are working. A `DNS lookup: FAILED` line can appear on some MicroPython builds even when the real app request succeeds. Trust `App check: OK`.
+
+Button test:
+
+```python
+from machine import Pin
+b = Pin(4, Pin.IN, Pin.PULL_UP)
+b.value()
+```
+
+Expected values:
+
+```text
+1 when not pressed
+0 when pressed
+```
+
+If the value never changes, check the wire to `GPIO4 / IO4` and `GND`. If pressing the button restarts the ESP32 or prints the startup status card again, the button is wired to `EN`, `RST`, `BOOT`, or power instead of `GPIO4`.
+
+Dashboard check:
+
+- `Printer Unit` shows `Status: startup` when the ESP32 boots and checks in.
+- `Printer Unit` shows `Status: next` when the physical button successfully advances the game.
+- `Accepted: no` means the ESP32 secret does not match Render/game config.
 
 ## Notes
 
