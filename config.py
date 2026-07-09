@@ -8,8 +8,10 @@ WIFI_PASSWORD = "Your Wi-Fi password"
 # APP_BASE_URL = "https://happy-polycules-v2.onrender.com"
 APP_BASE_URL = "https://your-render-app-name.onrender.com"
 NEXT_ENDPOINT = "/api/device/next"
+STATUS_ENDPOINT = "/api/device/status"
 DEVICE_ID = "printer-001"
 DEVICE_SECRET = "change-this-shared-secret"
+DNS_SERVER = "8.8.8.8"
 
 # UART wiring: ESP32 GPIO17 TX -> printer RXD, printer TXD -> ESP32 GPIO18 RX.
 PRINTER_UART_ID = 1
@@ -28,6 +30,35 @@ AFTER_REQUEST_PAUSE_MS = 500
 
 # Set to None if your board LED pin is different or unavailable.
 STATUS_LED_PIN = 2
+
+# Player-count switch wiring: 3-position ON-OFF-ON switch.
+# Center/common leg -> GND.
+# One outer leg -> PLAYER_SWITCH_PIN_A. Other outer leg -> PLAYER_SWITCH_PIN_B.
+# A active = 4 players, center/off = 5 players, B active = 6 players.
+PLAYER_SWITCH_PIN_A = 15
+PLAYER_SWITCH_PIN_B = 16
+PLAYER_SWITCH_VALUE_A = 4
+PLAYER_SWITCH_CENTER_VALUE = 5
+PLAYER_SWITCH_VALUE_B = 6
+
+# Potentiometer wiring: one outside leg -> 3V3, other outside leg -> GND,
+# middle/wiper leg -> configured GPIO. Values are mapped to 1-100.
+# Reserved is read by firmware setup but not sent to the app yet.
+# If using a classic ESP32, avoid GPIO6-11 and use ADC1 pins such as 32-35.
+POT_CONTROLS = [
+    {"name": "age", "pin": 5},
+    {"name": "queerness", "pin": 6},
+    {"name": "diversity", "pin": 7},
+    {"name": "reserved", "pin": 8},
+]
+DEFAULT_CONTROL_SETTINGS = {
+    "age": 50,
+    "queerness": 50,
+    "diversity": 50,
+}
+POT_SAMPLES = 5
+POT_SAMPLE_DELAY_MS = 2
+POT_REVERSE = False
 
 # Printer text and feed settings.
 PRINTER_TEXT_COLUMNS = 42

@@ -251,6 +251,37 @@ Wire the physical `START/NEXT` button between GPIO4 and GND.
 
 Important button note: the button must use `GPIO4 / IO4`, not `EN`, `RST`, `BOOT`, `3V3`, `5V`, or `VIN`. If pressing `START/NEXT` prints the startup `PRINTER STATUS` card again, the ESP32 is rebooting and the button is wired to reset/power instead of GPIO4.
 
+Wire the 3-position player-count switch:
+
+Use a 3-leg `ON-OFF-ON` switch. The center position should connect neither outer leg.
+
+| Switch Leg | ESP32 |
+| --- | --- |
+| Center/common | GND |
+| Outer leg A | GPIO15 |
+| Outer leg B | GPIO16 |
+
+The firmware reads this as:
+
+| Switch Position | Player Count |
+| --- | --- |
+| GPIO15 connected to GND | 4 |
+| Center/off | 5 |
+| GPIO16 connected to GND | 6 |
+
+Wire the four potentiometers:
+
+| Control | Pot Leg 1 | Pot Middle/Wiper | Pot Leg 3 |
+| --- | --- | --- | --- |
+| AGE | 3V3 | GPIO5 | GND |
+| QUEERNESS | 3V3 | GPIO6 | GND |
+| DIVERSITY | 3V3 | GPIO7 | GND |
+| RESERVED | 3V3 | GPIO8 | GND |
+
+The reserved potentiometer is wired and readied in `config.py`, but it is not sent to the app yet.
+
+Board warning: on many classic ESP32 boards, GPIO6-11 are connected to flash memory and cannot be used for pots. If your board is a classic ESP32, move the pot wipers to ADC1 pins such as GPIO32, GPIO33, GPIO34, and GPIO35, then update `POT_CONTROLS` in `config.py`. If your board is ESP32-S3-style and GPIO5-8 are exposed ADC pins, the table above is fine.
+
 All printer tuning values live in ESP32 `config.py`, including baud rate, heat settings, density, line width, feed lines, QR settings, and button timing.
 
 ## Current Hardware Flow
@@ -261,10 +292,11 @@ When hardware is attached:
 
 1. ESP32 connects to Wi-Fi.
 2. Physical button is pressed.
-3. ESP32 posts to `https://v2-i64p.onrender.com/api/device/next`.
-4. Render app advances the same game state.
-5. ESP32 receives the next card JSON.
-6. ESP32 prints the card on the thermal printer.
+3. ESP32 reads AGE, QUEERNESS, DIVERSITY, and player count from the physical controls.
+4. ESP32 posts to `https://v2-i64p.onrender.com/api/device/next`.
+5. Render app advances the same game state using those hardware values.
+6. ESP32 receives the next card JSON.
+7. ESP32 prints the card on the thermal printer.
 
 ## Hardware Troubleshooting
 

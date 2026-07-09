@@ -4,7 +4,7 @@ import json
 import network
 import socket
 import urequests
-from machine import Pin, UART, reset_cause
+from machine import ADC, Pin, UART, reset_cause
 
 import config
 
@@ -24,6 +24,21 @@ button = Pin(config.BUTTON_PIN, Pin.IN, Pin.PULL_UP)
 status_led = Pin(config.STATUS_LED_PIN, Pin.OUT) if config.STATUS_LED_PIN is not None else None
 boot_ms = time.ticks_ms()
 
+player_switch_a = Pin(getattr(config, "PLAYER_SWITCH_PIN_A", 15), Pin.IN, Pin.PULL_UP)
+player_switch_b = Pin(getattr(config, "PLAYER_SWITCH_PIN_B", 16), Pin.IN, Pin.PULL_UP)
+
+pot_adcs = {}
+for control in getattr(config, "POT_CONTROLS", []):
+    try:
+        adc = ADC(Pin(control["pin"]))
+        if hasattr(adc, "atten"):
+            adc.atten(getattr(ADC, "ATTN_11DB", 3))
+        if hasattr(adc, "width"):
+            adc.width(getattr(ADC, "WIDTH_12BIT", 3))
+        pot_adcs[control["name"]] = adc
+    except Exception as exc:
+        print("Pot setup failed:", control, exc)
+
 
 def led(value):
     if status_led:
@@ -40,6 +55,67 @@ def write(data, delay_ms=None):
 
 def clamp(value, minimum, maximum):
     return max(minimum, min(maximum, int(value)))
+
+
+def map_range(value, in_min, in_max, out_min, out_max):
+    value = clamp(value, in_min, in_max)
+    return out_min + ((value - in_min) * (out_max - out_min)) // max(1, in_max - in_min)
+
+
+def read_adc_value(adc):
+    if hasattr(adc, "read_u16"):
+        return adc.read_u16()
+    return adc.read()
+
+
+def read_pot_percent(name):
+    adc = pot_adcs.get(name)
+    if not adc:
+        return None
+    samples = int(getattr(config, "POT_SAMPLES", 5))
+    total = 0
+    for _ in range(max(1, samples)):
+        total += int(read_adc_value(adc))
+        time.sleep_ms(int(getattr(config, "POT_SAMPLE_DELAY_MS", 2)))
+    raw = total // max(1, samples)
+    raw_max = 65535 if raw > 4095 else 4095
+    if bool(getattr(config, "POT_REVERSE", False)):
+        raw = raw_max - raw
+    return map_range(raw, 0, raw_max, 1, 100)
+
+
+def read_control_settings():
+    defaults = getattr(config, "DEFAULT_CONTROL_SETTINGS", {
+        "age": 50,
+        "queerness": 50,
+        "diversity": 50,
+    })
+    settings = dict(defaults)
+    for key in ("age", "queerness", "diversity"):
+        value = read_pot_percent(key)
+        if value is not None:
+            settings[key] = value
+    return settings
+
+
+def read_player_count():
+    left_active = player_switch_a.value() == 0
+    right_active = player_switch_b.value() == 0
+    if left_active and not right_active:
+        return int(getattr(config, "PLAYER_SWITCH_VALUE_A", 4))
+    if right_active and not left_active:
+        return int(getattr(config, "PLAYER_SWITCH_VALUE_B", 6))
+    return int(getattr(config, "PLAYER_SWITCH_CENTER_VALUE", 5))
+
+
+def control_report():
+    settings = read_control_settings()
+    return (
+        "Players: " + str(read_player_count())
+        + "\nAGE: " + str(settings.get("age"))
+        + "\nQUEERNESS: " + str(settings.get("queerness"))
+        + "\nDIVERSITY: " + str(settings.get("diversity"))
+    )
 
 
 def printer_init():
@@ -322,6 +398,7 @@ def main():
                     status += "\nDetail: " + short_detail(data)
             except Exception as exc:
                 status += "\nApp check error: " + str(exc)
+        status += "\n" + control_report()
         print_status_card(status)
 
     while True:
@@ -335,10 +412,14 @@ def main():
 
         led(False)
         try:
+            settings = read_control_settings()
+            player_count = read_player_count()
             result = post_json(config.NEXT_ENDPOINT, {
                 "device_id": config.DEVICE_ID,
                 "secret": config.DEVICE_SECRET,
                 "button": "START/NEXT",
+                "settings": settings,
+                "player_count": player_count,
             })
             data = result.get("data")
             card = data.get("card") if isinstance(data, dict) else None

@@ -25,6 +25,8 @@ class DeviceNext(BaseModel):
     device_id: str = "printer-001"
     secret: str | None = None
     button: str = "START/NEXT"
+    settings: dict[str, int] | None = None
+    player_count: int | None = None
 
 
 class DeviceStatus(BaseModel):
@@ -470,8 +472,15 @@ async def api_device_next(payload: DeviceNext) -> JSONResponse:
     except HTTPException:
         record_device_status(state, payload.device_id, "rejected", "Bad device secret", accepted=False)
         raise
-    record_device_status(state, payload.device_id, "next", "START/NEXT accepted")
-    return JSONResponse(advance(load_state()))
+    if payload.player_count:
+        state["player_count"] = max(4, min(6, int(payload.player_count)))
+    record_device_status(
+        state,
+        payload.device_id,
+        "next",
+        f"START/NEXT accepted; players={state.get('player_count')}",
+    )
+    return JSONResponse(advance(load_state(), payload.settings))
 
 
 @app.post("/api/device/status")
