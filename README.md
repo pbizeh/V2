@@ -282,7 +282,7 @@ The reserved potentiometer is wired and readied in `config.py`, but it is not se
 
 Board warning: on many classic ESP32 boards, GPIO6-11 are connected to flash memory and cannot be used for pots. If your board is a classic ESP32, move the pot wipers to ADC1 pins such as GPIO32, GPIO33, GPIO34, and GPIO35, then update `POT_CONTROLS` in `config.py`. If your board is ESP32-S3-style and GPIO5-8 are exposed ADC pins, the table above is fine.
 
-The ESP32 sends live control updates to `/api/device/status` while it waits for START/NEXT. The main web page polls `/api/state` once per second, so turning the physical potentiometers or moving the player switch should visibly update the online sliders and player count without advancing the game.
+The ESP32 sends live control updates to `/api/device/status` while it waits for START/NEXT. The main web page polls `/api/state` twice per second, so turning the physical potentiometers or moving the player switch should visibly update the online sliders and player count without advancing the game. These values can change throughout the whole game; the next generated or printed card uses the latest received physical controls.
 
 All printer tuning values live in ESP32 `config.py`, including baud rate, heat settings, density, line width, feed lines, QR settings, and button timing.
 

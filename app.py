@@ -40,6 +40,7 @@ class DeviceStatus(BaseModel):
 
 class NextRequest(BaseModel):
     settings: dict[str, int] | None = None
+    player_count: int | None = None
 
 
 def read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -446,12 +447,15 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index() -> str:
+async def index() -> HTMLResponse:
     state = public_state(load_state())
     cfg = load_config()
-    return HTML.format(
-        state=json.dumps(state),
-        title=cfg.get("app_title", "Love Adventure V2"),
+    return HTMLResponse(
+        HTML.format(
+            state=json.dumps(state),
+            title=cfg.get("app_title", "Love Adventure V2"),
+        ),
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -468,6 +472,10 @@ async def dashboard() -> str:
 
 @app.post("/api/next")
 async def api_next(payload: NextRequest | None = None) -> dict[str, Any]:
+    state = load_state()
+    if payload:
+        state = apply_hardware_controls(state, payload.settings, payload.player_count)
+        save_state(state)
     return advance(load_state(), payload.settings if payload else None)
 
 
@@ -576,7 +584,7 @@ HTML = """
   <section class="panel">
     <div class="row">
       <button onclick="next()">START/NEXT</button>
-      <label>Players <input id="players" type="number" min="1" max="12"></label>
+      <label>Players <input id="players" type="number" min="4" max="6"></label>
     </div>
     <div class="row" style="margin-top: 16px;">
       <label class="slider">AGE <input id="age" type="range" min="1" max="100"><span id="ageValue"></span></label>
@@ -584,6 +592,7 @@ HTML = """
       <label class="slider">DIVERSITY <input id="diversity" type="range" min="1" max="100"><span id="diversityValue"></span></label>
     </div>
     <p class="muted" id="progress"></p>
+    <p class="muted" id="hardwareLive">Waiting for hardware controls...</p>
     <p class="current-label">Most recent print</p>
     <pre id="card"></pre>
     <div id="feed" class="print-feed"></div>
@@ -598,6 +607,9 @@ function currentSettings() {{
     queerness: Number(document.getElementById("queerness").value || 50),
     diversity: Number(document.getElementById("diversity").value || 50)
   }};
+}}
+function currentPlayerCount() {{
+  return Number(document.getElementById("players").value || state.player_count || 4);
 }}
 function syncSliderLabels() {{
   for (const id of sliderIds) {{
@@ -617,12 +629,16 @@ function draw() {{
   }}
   syncSliderLabels();
   document.getElementById("progress").textContent = `Game ${{state.game_id}} | Step ${{state.cursor}} of ${{state.total_steps}} | Presses ${{state.presses}}`;
+  const hardware = state.hardware || {{}};
+  document.getElementById("hardwareLive").textContent = hardware.last_seen
+    ? `Hardware: ${{hardware.status || "online"}} | Last update ${{hardware.last_seen}} | Players ${{state.player_count || 4}} | AGE ${{settings.age || 50}} | QUEERNESS ${{settings.queerness || 50}} | DIVERSITY ${{settings.diversity || 50}}`
+    : "Waiting for hardware controls...";
   document.getElementById("card").textContent = printText(state.last_print);
   const older = (state.prints || []).slice(0, -1).reverse();
   document.getElementById("feed").innerHTML = older.map(item => `<article><h3>Print ${{item.number}}: ${{item.title}}</h3><pre>${{printText(item).replace(/[&<>]/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}}[c]))}}</pre></article>`).join("");
 }}
 async function next() {{
-  const res = await fetch("/api/next", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{settings: currentSettings()}})}});
+  const res = await fetch("/api/next", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{settings: currentSettings(), player_count: currentPlayerCount()}})}});
   const data = await res.json();
   state = data.state;
   draw();
@@ -640,7 +656,7 @@ for (const id of sliderIds) {{
   }});
 }}
 draw();
-setInterval(loadState, 1000);
+setInterval(loadState, 500);
 </script>
 </body>
 </html>

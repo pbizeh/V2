@@ -404,7 +404,7 @@ def post_control_status(status="controls", message="Live controls"):
 
 def wait_for_press_with_live_controls(wlan):
     live_enabled = bool(getattr(config, "LIVE_CONTROL_STATUS_ENABLED", True))
-    interval = int(getattr(config, "CONTROL_STATUS_INTERVAL_MS", 2000))
+    interval = int(getattr(config, "CONTROL_STATUS_INTERVAL_MS", 500))
     next_status_at = time.ticks_ms()
     while True:
         if button_pressed():
