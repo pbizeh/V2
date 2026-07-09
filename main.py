@@ -2,6 +2,7 @@ import gc
 import time
 import json
 import network
+import socket
 import urequests
 from machine import Pin, UART, reset_cause
 
@@ -178,10 +179,53 @@ def connect_wifi():
             time.sleep_ms(300)
     led(wlan.isconnected())
     if wlan.isconnected():
+        apply_dns_override(wlan)
         print("Connected:", wlan.ifconfig())
     else:
         print("Wi-Fi connection failed")
     return wlan
+
+
+def apply_dns_override(wlan):
+    dns_server = getattr(config, "DNS_SERVER", "8.8.8.8")
+    if not dns_server:
+        return
+    try:
+        ip, subnet, gateway, dns = wlan.ifconfig()
+        if dns != dns_server:
+            wlan.ifconfig((ip, subnet, gateway, dns_server))
+            print("DNS set to:", dns_server)
+    except Exception as exc:
+        print("DNS override failed:", exc)
+
+
+def app_host():
+    url = config.APP_BASE_URL.strip()
+    if "://" in url:
+        url = url.split("://", 1)[1]
+    return url.split("/", 1)[0].split(":", 1)[0]
+
+
+def network_report(wlan):
+    lines = []
+    try:
+        ip, subnet, gateway, dns = wlan.ifconfig()
+        lines.append("IP: " + str(ip))
+        lines.append("Gateway: " + str(gateway))
+        lines.append("DNS: " + str(dns))
+    except Exception as exc:
+        lines.append("ifconfig error: " + str(exc))
+
+    host = app_host()
+    lines.append("Host: " + host)
+    try:
+        addr = socket.getaddrinfo(host, 443)[0][-1][0]
+        lines.append("DNS lookup: OK")
+        lines.append("Host IP: " + str(addr))
+    except Exception as exc:
+        lines.append("DNS lookup: FAILED")
+        lines.append("DNS error: " + str(exc))
+    return "\n".join(lines)
 
 
 def wait_for_button_release():
@@ -213,6 +257,7 @@ def post_json(path, payload):
     headers = {"Content-Type": "application/json"}
     response = None
     try:
+        print("POST:", url)
         response = urequests.post(url, data=json.dumps(payload), headers=headers)
         status_code = getattr(response, "status_code", 0)
         try:
@@ -263,6 +308,7 @@ def main():
         status += "\nReset cause: " + str(reset_cause())
         status += "\nBoot ms: " + str(boot_ms)
         if wlan.isconnected():
+            status += "\n" + network_report(wlan)
             try:
                 result = check_app_status("startup", "Startup check")
                 data = result.get("data")
@@ -306,7 +352,11 @@ def main():
                 )
         except Exception as exc:
             print("App request failed:", exc)
-            print_status_card("App request failed. Try again.\n" + str(exc)[:160])
+            print_status_card(
+                "App request failed. Try again."
+                + "\n" + network_report(wlan)
+                + "\nError: " + str(exc)[:120]
+            )
         finally:
             led(True)
             gc.collect()
