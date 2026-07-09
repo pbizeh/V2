@@ -1,7 +1,7 @@
 {
   "app_title": "Love Adventure V2",
   "public_app_url": "",
-  "device_secret": "change-this-shared-secret",
+  "device_secret": "Zorombaad",
   "default_player_count": 4,
   "default_settings": {
     "age": 50,
