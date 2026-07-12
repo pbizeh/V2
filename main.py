@@ -3,6 +3,7 @@ import time
 import json
 import network
 import socket
+import ubinascii
 import urequests
 from machine import ADC, Pin, UART, reset_cause
 
@@ -233,6 +234,34 @@ def print_text_part(text, style, fallback_columns=None):
     left()
 
 
+def print_raster_image(image):
+    if not image:
+        return
+    width = int(image.get("width", 0))
+    height = int(image.get("height", 0))
+    data_hex = image.get("bytes_hex", "")
+    if width <= 0 or height <= 0 or not data_hex:
+        return
+    width_bytes = (width + 7) // 8
+    data = ubinascii.unhexlify(data_hex)
+    center()
+    header = b"\x1dv0\x00" + bytes((
+        width_bytes & 0xFF,
+        (width_bytes >> 8) & 0xFF,
+        height & 0xFF,
+        (height >> 8) & 0xFF,
+    ))
+    printer.write(header)
+    time.sleep_ms(20)
+    chunk_size = int(getattr(config, "PRINTER_RASTER_CHUNK_BYTES", 512))
+    delay_ms = int(getattr(config, "PRINTER_RASTER_CHUNK_DELAY_MS", 12))
+    for offset in range(0, len(data), chunk_size):
+        printer.write(data[offset:offset + chunk_size])
+        time.sleep_ms(delay_ms)
+    left()
+    write("\n")
+
+
 def print_card(card):
     printer_init()
     styles = card.get("styles") or {}
@@ -244,6 +273,8 @@ def print_card(card):
     if title:
         print_text_part(title, title_style, config.TITLE_TEXT_COLUMNS)
         write("\n")
+
+    print_raster_image(card.get("image_raster"))
 
     body = card.get("body") or card.get("text")
     if body:

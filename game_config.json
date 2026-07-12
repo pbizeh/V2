@@ -61,6 +61,28 @@
   "fallback_round_story": "Jim and Julia notice a strange invitation slipped under their cabin door.",
   "persona_fold_line": "--- fold here ---",
   "fallback_persona_names": ["Jim", "Julia"],
+  "static_personas": {
+    "jim": {
+      "name": "Jim",
+      "image_url": "/static/personas/jim_thermal.png",
+      "raster_path": "static/personas/jim_raster.json",
+      "age": 42,
+      "sexuality": "bi",
+      "gender": "man",
+      "hashtags": ["#restless", "#tender", "#dry_wit"],
+      "footer": ""
+    },
+    "julia": {
+      "name": "Julia",
+      "image_url": "/static/personas/julia_thermal.png",
+      "raster_path": "static/personas/julia_raster.json",
+      "age": 37,
+      "sexuality": "bi",
+      "gender": "woman",
+      "hashtags": ["#curious", "#bold", "#romantic"],
+      "footer": ""
+    }
+  },
   "persona_name_pool": ["Alex", "Sam", "Riley", "Morgan", "Taylor", "Jordan", "Casey", "Jamie", "Robin", "Avery", "Quinn", "Drew"],
   "persona_traits": ["curious", "romantic", "restless", "tender", "bold", "careful", "funny", "dramatic"],
   "desire_templates": [
@@ -109,14 +131,16 @@
     {
       "phase": "Start",
       "title": "Jim",
-      "kind": "text",
-      "text": "Jim: White, English, 42, bi, random traits."
+      "kind": "static_persona",
+      "persona_id": "jim",
+      "text": "Jim"
     },
     {
       "phase": "Start",
       "title": "Julia",
-      "kind": "text",
-      "text": "Julia: White, American, 37, bi, random traits."
+      "kind": "static_persona",
+      "persona_id": "julia",
+      "text": "Julia"
     },
     {
       "phase": "Start",

@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 
@@ -19,6 +20,7 @@ STATE_PATH = Path(os.getenv("GAME_STATE_PATH", BASE_DIR / "game_state.json"))
 
 
 app = FastAPI(title="Love Adventure V2")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 class DeviceNext(BaseModel):
@@ -55,6 +57,15 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def load_config() -> dict[str, Any]:
     return read_json(CONFIG_PATH, {})
+
+
+def load_raster_payload(path_value: str | None) -> dict[str, Any] | None:
+    if not path_value:
+        return None
+    path = BASE_DIR / path_value
+    if not path.exists():
+        return None
+    return read_json(path, {})
 
 
 def device_secret(cfg: dict[str, Any] | None = None) -> str | None:
@@ -378,6 +389,26 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     lower = value.lower()
     styles = cfg.get("print_text_styles", {})
 
+    if kind == "static_persona":
+        persona_id = str(step.get("persona_id", "")).strip()
+        persona = (cfg.get("static_personas") or {}).get(persona_id, {})
+        hashtags = " ".join(persona.get("hashtags", []))
+        metadata = " | ".join(
+            str(persona.get(key, "")).strip()
+            for key in ("age", "sexuality", "gender")
+            if str(persona.get(key, "")).strip()
+        )
+        body_lines = [line for line in [metadata, hashtags] if line]
+        return {
+            "title": str(persona.get("name", card_title)).upper(),
+            "body": "\n\n".join(body_lines),
+            "footer": str(persona.get("footer", "")),
+            "image_url": str(persona.get("image_url", "")),
+            "image_raster": load_raster_payload(persona.get("raster_path")),
+            "styles": styles,
+            "show_divider": bool(step.get("show_divider", False)),
+        }
+
     if kind in {"persona", "vote"} or "n=number of players" in lower or "n vote papers" in lower:
         if kind == "vote" or "vote" in lower:
             body = make_vote_papers(state)
@@ -615,6 +646,7 @@ HTML = """
     .thermal-paper.empty {{ color: #555; }}
     .paper-part {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
     .paper-title {{ text-align: center; font-weight: 700; margin-bottom: 10px; }}
+    .paper-image {{ display: block; width: 100%; max-width: 320px; margin: 0 auto 10px; image-rendering: pixelated; filter: grayscale(1) contrast(1.15); }}
     .paper-body {{ margin-bottom: 8px; }}
     .paper-footer {{ margin-top: 10px; opacity: .86; }}
     .thermal-feed {{ display: grid; gap: 10px; }}
@@ -676,10 +708,11 @@ function cardHtml(item) {{
   if (!card) return `<pre>${{escapeHtml(printText(item))}}</pre>`;
   const styles = card.styles || {{}};
   const title = card.title ? `<div class="paper-part paper-title" style="${{styleAttr(styles.title, 1.65)}}">${{escapeHtml(card.title)}}</div>` : "";
+  const image = card.image_url ? `<img class="paper-image" alt="" src="${{escapeHtml(card.image_url)}}">` : "";
   const body = card.body ? `<div class="paper-part paper-body" style="${{styleAttr(styles.body, 1)}}">${{escapeHtml(card.body)}}</div>` : "";
   const footer = card.footer ? `<div class="paper-part paper-footer" style="${{styleAttr(styles.footer, .9)}}">${{escapeHtml(card.footer)}}</div>` : "";
   const qr = card.qr_url ? `<div class="paper-part paper-footer">[native printer QR]\\n${{escapeHtml(card.qr_url)}}</div>` : "";
-  return title + body + footer + qr;
+  return title + image + body + footer + qr;
 }}
 function draw() {{
   document.getElementById("players").value = state.player_count || 4;
