@@ -97,6 +97,8 @@ def default_state() -> dict[str, Any]:
         "persona_names": [],
         "persona_queue": [],
         "button_waiting_for_ready_key": None,
+        "vote_ballots_remaining": None,
+        "vote_ballots_key": None,
         "last_card": None,
         "last_print": None,
         "prints": [],
@@ -623,8 +625,23 @@ def make_persona_cards(state: dict[str, Any], cfg: dict[str, Any]) -> str:
 
 def make_vote_papers(state: dict[str, Any]) -> str:
     count = int(state.get("player_count", 4))
-    labels = ["C"] + [str(i) for i in range(2, count + 1)]
+    labels = ["C"] + [str(i) for i in range(1, count)]
     return "Detach one vote token and pass it face down.\n\n" + "\n".join(f"[ {label} ]" for label in labels)
+
+
+def ballot_line(state: dict[str, Any]) -> str:
+    count = max(1, int(state.get("player_count", 4)))
+    return "   ".join(["C"] + [str(i) for i in range(1, count)])
+
+
+def ballot_card(state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": ballot_line(state),
+        "body": "",
+        "footer": "",
+        "styles": cfg.get("print_text_styles", {}),
+        "show_divider": False,
+    }
 
 
 def center_text(text: str, width: int) -> str:
@@ -936,6 +953,26 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
         state["prints"] = (state.get("prints", []) + [print_item])[-50:]
         state["presses"] = int(state.get("presses", 0)) + 1
         state["cursor"] = cursor if queue else min(cursor + 1, len(steps))
+        state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item})
+        state["device_secret_required"] = bool(secret)
+        save_state(state)
+        return {"card": card, "print": print_item, "state": public_state(state), "done": state["cursor"] >= len(steps)}
+
+    if str(step.get("kind", "")).lower() == "vote":
+        vote_key = f"{state.get('game_id')}:{cursor}:vote"
+        if state.get("vote_ballots_key") != vote_key:
+            state["vote_ballots_key"] = vote_key
+            state["vote_ballots_remaining"] = max(1, int(state.get("player_count", 4)))
+        remaining = max(1, int(state.get("vote_ballots_remaining") or state.get("player_count", 4)))
+        card = ballot_card(state, cfg)
+        print_item = build_print(card, step, state, cfg, cursor)
+        remaining -= 1
+        state["vote_ballots_remaining"] = remaining
+        state["last_card"] = card
+        state["last_print"] = print_item
+        state["prints"] = (state.get("prints", []) + [print_item])[-50:]
+        state["presses"] = int(state.get("presses", 0)) + 1
+        state["cursor"] = cursor if remaining > 0 else min(cursor + 1, len(steps))
         state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item})
         state["device_secret_required"] = bool(secret)
         save_state(state)

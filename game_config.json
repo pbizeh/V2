@@ -199,15 +199,27 @@
     },
     {
       "phase": "Round 1",
+      "title": "Now its time vote!",
+      "kind": "text",
+      "text": "First print out the ballots.",
+      "print_title": "Now its time vote!",
+      "print_body": "First print out the ballots.",
+      "print_footer": ""
+    },
+    {
+      "phase": "Round 1",
       "title": "Vote Papers",
       "kind": "vote",
-      "text": "Print N vote papers: C, 2, 3, 4, and so on."
+      "text": "Print N ballots."
     },
     {
       "phase": "Round 1",
       "title": "Voting instructions",
       "kind": "text",
-      "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."
+      "text": "Now use the voting papers to vote for the story that you liked. Detach the number (C being Captain and so on) face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote.",
+      "print_title": "",
+      "print_body": "Now use the voting papers to vote for the story that you liked. Detach the number (C being Captain and so on) face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote.",
+      "print_footer": ""
     },
     {
       "phase": "Round 1",
