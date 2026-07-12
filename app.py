@@ -787,6 +787,43 @@ def persona_batch_step_for_prepare(cfg: dict[str, Any], current_step: dict[str, 
     return {"kind": "generated_persona_batch", "title": "Persona Cards", "persona_profile": current_step.get("persona_profile", "average")}
 
 
+def persona_generation_in_progress(state: dict[str, Any], cfg: dict[str, Any]) -> bool:
+    status = state.get("persona_generation_status") or {}
+    if status.get("status") != "generating":
+        return False
+    key = status.get("key")
+    return not (key and state.get("persona_queue_key") == key and state.get("persona_queue"))
+
+
+def patience_card(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": str(cfg.get("patience_card_title", "")),
+        "body": str(cfg.get("patience_card_text", "Please be patient while cards are being generated.")),
+        "footer": "",
+        "styles": cfg.get("print_text_styles", {}),
+        "show_divider": False,
+    }
+
+
+def record_print_without_advancing(
+    card: dict[str, Any],
+    step: dict[str, Any],
+    state: dict[str, Any],
+    cfg: dict[str, Any],
+    cursor: int,
+    secret_required: bool,
+) -> dict[str, Any]:
+    print_item = build_print(card, step, state, cfg, cursor)
+    state["last_card"] = card
+    state["last_print"] = print_item
+    state["prints"] = (state.get("prints", []) + [print_item])[-50:]
+    state["presses"] = int(state.get("presses", 0)) + 1
+    state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item, "blocked": True})
+    state["device_secret_required"] = secret_required
+    save_state(state)
+    return {"card": card, "print": print_item, "state": public_state(state), "done": False}
+
+
 def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = load_config()
     secret = device_secret(cfg)
@@ -801,10 +838,28 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     if step.get("lock_player_count"):
         state["player_count_locked"] = True
 
+    if persona_generation_in_progress(state, cfg):
+        return record_print_without_advancing(
+            patience_card(cfg),
+            {"phase": "System", "title": "Generating Cards", "kind": "patience"},
+            state,
+            cfg,
+            cursor,
+            bool(secret),
+        )
+
     if str(step.get("kind", "")).lower() == "generated_persona_batch":
         state = wait_for_persona_queue(state, cfg, step)
         if not state.get("persona_queue"):
-            state = prepare_persona_batch(state, cfg, step)
+            start_persona_batch_preparation(state, cfg, step)
+            return record_print_without_advancing(
+                patience_card(cfg),
+                {"phase": "System", "title": "Generating Cards", "kind": "patience"},
+                load_state(),
+                cfg,
+                cursor,
+                bool(secret),
+            )
         queue = list(state.get("persona_queue", []))
         card = queue.pop(0)
         print_item = build_print(card, step, state, cfg, cursor)
