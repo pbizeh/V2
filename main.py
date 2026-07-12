@@ -220,31 +220,47 @@ def print_wrapped(text, width=None):
             write(line + "\n")
 
 
-def print_card(card):
-    printer_init()
-    center()
-    bold(True)
-    size(config.TITLE_WIDTH, config.TITLE_HEIGHT)
-    print_wrapped(card.get("title", config.DEFAULT_CARD_TITLE), config.TITLE_TEXT_COLUMNS)
+def print_text_part(text, style, fallback_columns=None):
+    if not text:
+        return
+    align = style.get("align", "left")
+    center() if align == "center" else left()
+    bold(bool(style.get("bold", False)))
+    size(int(style.get("width", 1)), int(style.get("height", 1)))
+    print_wrapped(text, int(style.get("columns", fallback_columns or config.PRINTER_TEXT_COLUMNS)))
     size(1, 1)
     bold(False)
     left()
-    write(config.DIVIDER + "\n")
 
-    body = card.get("body") or card.get("text") or ""
-    print_wrapped(body)
+
+def print_card(card):
+    printer_init()
+    styles = card.get("styles") or {}
+    title_style = styles.get("title", {})
+    body_style = styles.get("body", styles.get("text", {}))
+    footer_style = styles.get("footer", {})
+
+    title = card.get("title")
+    if title:
+        print_text_part(title, title_style, config.TITLE_TEXT_COLUMNS)
+        write("\n")
+
+    body = card.get("body") or card.get("text")
+    if body:
+        print_text_part(body, body_style, config.PRINTER_TEXT_COLUMNS)
 
     footer = card.get("footer")
     if footer:
         write("\n")
-        print_wrapped(footer)
+        print_text_part(footer, footer_style, config.PRINTER_TEXT_COLUMNS)
 
     qr_url = card.get("qr_url")
     if qr_url and config.PRINT_NATIVE_QR:
         write("\n")
         print_qr(qr_url)
 
-    write("\n" + config.DIVIDER + "\n")
+    if card.get("show_divider"):
+        write("\n" + config.DIVIDER + "\n")
     feed()
     cut_if_available()
 

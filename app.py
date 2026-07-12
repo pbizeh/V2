@@ -69,6 +69,7 @@ def default_state() -> dict[str, Any]:
         "cursor": 0,
         "presses": 0,
         "player_count": int(cfg.get("default_player_count", 4)),
+        "player_count_locked": False,
         "settings": {
             "age": int(default_settings.get("age", 50)),
             "queerness": int(default_settings.get("queerness", 50)),
@@ -144,7 +145,7 @@ def apply_hardware_controls(
 ) -> dict[str, Any]:
     if settings:
         state["settings"] = normalize_settings(settings, state.get("settings", {}))
-    if player_count:
+    if player_count and not state.get("player_count_locked"):
         state["player_count"] = max(4, min(6, int(player_count)))
     return state
 
@@ -317,10 +318,11 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
     print_profile = cfg.get("print_profile") or {}
     width = int(print_profile.get("text_columns", cfg.get("print_preview_columns", 42)))
     divider = str(print_profile.get("divider", cfg.get("print_preview_divider", "-" * min(width, 42))))
-    lines = [
-        center_text(card.get("title", "PRINT"), width),
-        divider[:width],
-    ]
+    lines = []
+    title = str(card.get("title") or "").strip()
+    if title:
+        lines.extend(wrap_text(title, width))
+        lines.append("")
     for paragraph in str(card.get("body", "")).split("\n"):
         if paragraph.strip():
             lines.extend(wrap_text(paragraph, width))
@@ -334,9 +336,8 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
     if footer:
         lines.append("")
         lines.extend(wrap_text(footer, width))
-    settings = state.get("settings", {})
-    lines.append(divider[:width])
-    lines.append(f"AGE {settings.get('age', 50)} | QUEERNESS {settings.get('queerness', 50)} | DIVERSITY {settings.get('diversity', 50)}")
+    if card.get("show_divider"):
+        lines.append(divider[:width])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -375,6 +376,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     title = f"{phase}: {card_title}"
     footer = f"Step {state.get('cursor', 0) + 1} | START/NEXT"
     lower = value.lower()
+    styles = cfg.get("print_text_styles", {})
 
     if kind in {"persona", "vote"} or "n=number of players" in lower or "n vote papers" in lower:
         if kind == "vote" or "vote" in lower:
@@ -383,7 +385,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
         else:
             body = make_persona_cards(state, cfg)
             title = f"{phase}: Persona Cards"
-        return {"title": title, "body": body, "footer": footer}
+        return {"title": title, "body": body, "footer": footer, "styles": styles}
 
     if kind == "qr" or "qr code" in lower or "story portal" in lower:
         qr_url = unique_portal_url(state, cfg)
@@ -392,6 +394,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             "body": cfg.get("qr_card_text", "Scan this to submit the winning story."),
             "footer": footer,
             "qr_url": qr_url,
+            "styles": styles,
         }
 
     if kind == "generated_title" or "[title based on prompt response]" in lower:
@@ -400,7 +403,13 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     if kind == "generated_story" or "[story based on prompt response]" in lower:
         value = ai_or_fallback("round_story", "fallback_round_story", state, cfg)
 
-    return {"title": title, "body": value, "footer": footer}
+    return {
+        "title": apply_placeholders(str(step.get("print_title", title)), state, cfg),
+        "body": apply_placeholders(str(step.get("print_body", value)), state, cfg),
+        "footer": apply_placeholders(str(step.get("print_footer", footer)), state, cfg) if step.get("print_footer") is not None else footer,
+        "styles": styles,
+        "show_divider": bool(step.get("show_divider", False)),
+    }
 
 
 def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -414,6 +423,8 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     if cursor >= len(steps):
         cursor = len(steps) - 1
     step = steps[cursor]
+    if step.get("lock_player_count"):
+        state["player_count_locked"] = True
     card = build_card(step, state, cfg)
     print_item = build_print(card, step, state, cfg, cursor)
     state["last_card"] = card
@@ -437,6 +448,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "total_steps": len(steps),
         "presses": state.get("presses", 0),
         "player_count": state.get("player_count", 4),
+        "player_count_locked": bool(state.get("player_count_locked")),
         "captain_index": state.get("captain_index", 0),
         "scores": state.get("scores", {}),
         "settings": normalize_settings(state.get("settings", {})),
@@ -601,6 +613,10 @@ HTML = """
     }}
     .thermal-paper pre {{ min-height: 0; background: transparent; border: 0; padding: 0; }}
     .thermal-paper.empty {{ color: #555; }}
+    .paper-part {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
+    .paper-title {{ text-align: center; font-weight: 700; margin-bottom: 10px; }}
+    .paper-body {{ margin-bottom: 8px; }}
+    .paper-footer {{ margin-top: 10px; opacity: .86; }}
     .thermal-feed {{ display: grid; gap: 10px; }}
   </style>
 </head>
@@ -649,6 +665,22 @@ function printText(item) {{
 function escapeHtml(text) {{
   return String(text || "").replace(/[&<>]/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}}[c]));
 }}
+function styleAttr(style, fallbackScale) {{
+  const scale = Number(style?.preview_scale || fallbackScale || 1);
+  const weight = style?.bold ? "font-weight:700;" : "";
+  const align = style?.align ? `text-align:${{style.align}};` : "";
+  return `font-size:${{scale}}em;${{weight}}${{align}}`;
+}}
+function cardHtml(item) {{
+  const card = item?.card || null;
+  if (!card) return `<pre>${{escapeHtml(printText(item))}}</pre>`;
+  const styles = card.styles || {{}};
+  const title = card.title ? `<div class="paper-part paper-title" style="${{styleAttr(styles.title, 1.65)}}">${{escapeHtml(card.title)}}</div>` : "";
+  const body = card.body ? `<div class="paper-part paper-body" style="${{styleAttr(styles.body, 1)}}">${{escapeHtml(card.body)}}</div>` : "";
+  const footer = card.footer ? `<div class="paper-part paper-footer" style="${{styleAttr(styles.footer, .9)}}">${{escapeHtml(card.footer)}}</div>` : "";
+  const qr = card.qr_url ? `<div class="paper-part paper-footer">[native printer QR]\\n${{escapeHtml(card.qr_url)}}</div>` : "";
+  return title + body + footer + qr;
+}}
 function draw() {{
   document.getElementById("players").value = state.player_count || 4;
   const settings = state.settings || {{}};
@@ -662,11 +694,10 @@ function draw() {{
   document.getElementById("hardwareLive").textContent = hardware.last_seen
     ? `Hardware: ${{hardware.status || "online"}} | Last update ${{hardware.last_seen}} | Players ${{state.player_count || 4}} | AGE ${{settings.age || 50}} | QUEERNESS ${{settings.queerness || 50}} | DIVERSITY ${{settings.diversity || 50}}`
     : "Waiting for hardware controls...";
-  const currentText = printText(state.last_print);
-  document.getElementById("card").textContent = currentText;
+  document.getElementById("cardPaper").innerHTML = cardHtml(state.last_print);
   document.getElementById("cardPaper").classList.toggle("empty", !state.last_print);
   const older = (state.prints || []).slice(0, -1).reverse();
-  document.getElementById("feed").innerHTML = older.map(item => `<article><h3>Print ${{item.number}}: ${{item.title}}</h3><div class="thermal-paper"><pre>${{escapeHtml(printText(item))}}</pre></div></article>`).join("");
+  document.getElementById("feed").innerHTML = older.map(item => `<article><h3>Print ${{item.number}}: ${{item.title}}</h3><div class="thermal-paper">${{cardHtml(item)}}</div></article>`).join("");
 }}
 async function next() {{
   const res = await fetch("/api/next", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{settings: currentSettings(), player_count: currentPlayerCount()}})}});

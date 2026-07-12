@@ -22,6 +22,32 @@
     "qr_mode": "native printer QR",
     "preview_note": "The main portal preview should mimic 58mm thermal paper. Text is ASCII/native printer text. QR codes use the printer QR command. Only image cards should be rasterized."
   },
+  "print_text_styles": {
+    "title": {
+      "width": 2,
+      "height": 2,
+      "columns": 21,
+      "bold": true,
+      "align": "center",
+      "preview_scale": 1.65
+    },
+    "body": {
+      "width": 1,
+      "height": 1,
+      "columns": 42,
+      "bold": false,
+      "align": "left",
+      "preview_scale": 1
+    },
+    "footer": {
+      "width": 1,
+      "height": 1,
+      "columns": 42,
+      "bold": false,
+      "align": "left",
+      "preview_scale": 0.9
+    }
+  },
   "raster_policy": {
     "text": "native ASCII printer text",
     "qr": "native printer QR command",
@@ -56,13 +82,20 @@
       "phase": "Start",
       "title": "Welcome to a game of Love Adventure",
       "kind": "text",
-      "text": "Welcome to a game of Love Adventure"
+      "text": "Welcome to a game of\n\nSelect the number of players from the side switch and hit START/NEXT.",
+      "print_title": "LOVE ADVENTURE",
+      "print_body": "Welcome to a game of\n\nSelect the number of players from the side switch and hit START/NEXT.",
+      "print_footer": ""
     },
     {
       "phase": "Start",
       "title": "Instructions",
       "kind": "text",
-      "text": "Throughout the game, the game itself will instruct you. Set the number of players from the side of the box (game unit) and press START/NEXT."
+      "lock_player_count": true,
+      "text": "Don't Worry If you haven't played this game. Throughout the game, I, the game unit AI will instruct you.\nFirst, let's find our first CAPTAIN. The first Captain is the player who has not been in a relationship for the longest. If you are all in relationships, then the player in the shortest relationship is the Captain. When you find the Captain, pass me to them.",
+      "print_title": "",
+      "print_body": "Don't Worry If you haven't played this game. Throughout the game, I, the game unit AI will instruct you.\nFirst, let's find our first CAPTAIN. The first Captain is the player who has not been in a relationship for the longest. If you are all in relationships, then the player in the shortest relationship is the Captain. When you find the Captain, pass me to them.",
+      "print_footer": ""
     },
     {
       "phase": "Start",
