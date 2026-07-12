@@ -144,9 +144,12 @@
     },
     {
       "phase": "Start",
-      "title": "Getting ready for the first round",
+      "title": "First Round Setup",
       "kind": "text",
-      "text": "Put the cards in the middle. For the first round, determine the CAPTAIN. The first round Captain is the player who had the latest date. Each player says the last time they went out on a date, and the player with the latest date starts the game."
+      "text": "Put Jim and Julia in the middle. The Captain presses the button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain.",
+      "print_title": "First Round Setup",
+      "print_body": "Put Jim and Julia in the middle. The Captain presses the button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain.",
+      "print_footer": ""
     },
     {
       "phase": "Start",
