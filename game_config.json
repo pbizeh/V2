@@ -192,7 +192,10 @@
       "phase": "Round 1",
       "title": "Tell stories",
       "kind": "text",
-      "text": "Each player tells the story of the NIGHT if their card persona would join Jim and Julia. How do they meet? What happens next? After 1 minute, starting with the Captain, every player has 1-2 minutes to tell their stories. After this round of storytelling, press the button again."
+      "text": "Each player tells the story of the NIGHT if their card persona would join Jim and Julia. How do they meet? What happens next? After 1 minute, starting with the Captain, every player has 1-2 minutes to tell their stories. After this round of storytelling, press the button again.",
+      "print_title": "",
+      "print_body": "Each player tells the story of the NIGHT if their card persona would join Jim and Julia. How do they meet? What happens next? After 1 minute, starting with the Captain, every player has 1-2 minutes to tell their stories. After this round of storytelling, press the button again.",
+      "print_footer": ""
     },
     {
       "phase": "Round 1",
