@@ -183,19 +183,16 @@
       "phase": "Round 1",
       "title": "A night at the bar",
       "kind": "text",
-      "text": "A night at the bar"
-    },
-    {
-      "phase": "Round 1",
-      "title": "Story",
-      "kind": "text",
-      "text": "Jim and Julia are sitting at the bar. They have been wanting to do this for a long while, and today feels like the right time. [persona list] are other passengers of the ship, present at the bar. Jim and Julia are discussing how fun the night would be if one other person could join them."
+      "text": "Jim and Julia are sitting at the bar. They have been wanting to do this for a long while, and today feels like the right time. [persona list] are other passengers of the ship, present at the bar. Jim and Julia are discussing how fun the night would be if one other person could join them...",
+      "print_title": "A night at the bar",
+      "print_body": "Jim and Julia are sitting at the bar. They have been wanting to do this for a long while, and today feels like the right time. [persona list] are other passengers of the ship, present at the bar. Jim and Julia are discussing how fun the night would be if one other person could join them...",
+      "print_footer": ""
     },
     {
       "phase": "Round 1",
       "title": "Tell stories",
       "kind": "text",
-      "text": "Each player tells the story of the NIGHT if their card persona would join Jim and Julia. How do they meet? What happens next? After 1 minute, starting with the Captain, every player has 1-2 minutes to tell their stories."
+      "text": "Each player tells the story of the NIGHT if their card persona would join Jim and Julia. How do they meet? What happens next? After 1 minute, starting with the Captain, every player has 1-2 minutes to tell their stories. After this round of storytelling, press the button again."
     },
     {
       "phase": "Round 1",
