@@ -101,7 +101,10 @@
       "phase": "Start",
       "title": "Story",
       "kind": "text",
-      "text": "In this game, you will explore the adventures of Jim and Julia, a couple on a seven-day-long ship ride. Press START/NEXT to continue."
+      "text": "Read this to all: In this game, you will explore the adventures of Jim and Julia, a couple on a seven-day-long ship ride. Detach this card, then press START/NEXT to print their Persona Cards. Make sure you detach the first card before pressing the button.",
+      "print_title": "",
+      "print_body": "Read this to all: In this game, you will explore the adventures of Jim and Julia, a couple on a seven-day-long ship ride. Detach this card, then press START/NEXT to print their Persona Cards. Make sure you detach the first card before pressing the button.",
+      "print_footer": ""
     },
     {
       "phase": "Start",
