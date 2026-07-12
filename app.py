@@ -543,6 +543,7 @@ def prepare_persona_batch(state: dict[str, Any], cfg: dict[str, Any], step: dict
         "finished_at": utc_now(),
         "count": len(cards),
         "profile": str(step.get("persona_profile", "average")),
+        "key": key,
     }
     return state
 
@@ -576,6 +577,9 @@ def start_persona_batch_preparation(state: dict[str, Any], cfg: dict[str, Any], 
         latest_state["persona_queue_key"] = generated_state.get("persona_queue_key")
         latest_state["persona_names"] = generated_state.get("persona_names", latest_state.get("persona_names", []))
         latest_state["persona_generation_status"] = generated_state.get("persona_generation_status")
+        if latest_state.get("persona_patience_key") == generated_state.get("persona_queue_key"):
+            latest_state["ready_notice_pending"] = True
+            latest_state["ready_notice_key"] = generated_state.get("persona_queue_key")
         save_state(latest_state)
 
     Thread(target=worker, daemon=True).start()
@@ -797,6 +801,22 @@ def patience_card(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def ready_notice_card(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": str(cfg.get("ready_notice_card_title", "")),
+        "body": str(cfg.get("ready_notice_card_text", "Your cards are ready, thank you for your patience.")),
+        "footer": "",
+        "styles": cfg.get("print_text_styles", {}),
+        "show_divider": False,
+    }
+
+
+def no_print_response(state: dict[str, Any], cfg: dict[str, Any], reason: str) -> dict[str, Any]:
+    state.setdefault("log", []).append({"cursor": state.get("cursor", 0), "blocked": True, "no_print": True, "reason": reason})
+    save_state(state)
+    return {"card": None, "print": None, "state": public_state(state), "done": False, "no_print": True, "reason": reason}
+
+
 def record_print_without_advancing(
     card: dict[str, Any],
     step: dict[str, Any],
@@ -812,6 +832,23 @@ def record_print_without_advancing(
     state["presses"] = int(state.get("presses", 0)) + 1
     state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item, "blocked": True})
     state["device_secret_required"] = secret_required
+    save_state(state)
+    return {"card": card, "print": print_item, "state": public_state(state), "done": False}
+
+
+def record_system_print(
+    card: dict[str, Any],
+    step: dict[str, Any],
+    state: dict[str, Any],
+    cfg: dict[str, Any],
+    cursor: int,
+) -> dict[str, Any]:
+    print_item = build_print(card, step, state, cfg, cursor)
+    state["last_card"] = card
+    state["last_print"] = print_item
+    state["prints"] = (state.get("prints", []) + [print_item])[-50:]
+    state["presses"] = int(state.get("presses", 0)) + 1
+    state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item, "system_print": True})
     save_state(state)
     return {"card": card, "print": print_item, "state": public_state(state), "done": False}
 
@@ -833,11 +870,19 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     if str(step.get("kind", "")).lower() == "generated_persona_batch":
         state = wait_for_persona_queue(state, cfg, step)
         if not state.get("persona_queue"):
-            start_persona_batch_preparation(state, cfg, step)
+            key = persona_batch_key(state, step)
+            if state.get("persona_patience_key") == key:
+                return no_print_response(state, cfg, "persona_cards_still_generating")
+            state["persona_patience_key"] = key
+            state["ready_notice_pending"] = False
+            state["ready_notice_key"] = None
+            save_state(state)
+            start_persona_batch_preparation(load_state(), cfg, step)
+            state = load_state()
             return record_print_without_advancing(
                 patience_card(cfg),
                 {"phase": "System", "title": "Generating Cards", "kind": "patience"},
-                load_state(),
+                state,
                 cfg,
                 cursor,
                 bool(secret),
@@ -846,6 +891,8 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
         card = queue.pop(0)
         print_item = build_print(card, step, state, cfg, cursor)
         state["persona_queue"] = queue
+        if state.get("ready_notice_key") == state.get("persona_queue_key"):
+            state["ready_notice_pending"] = False
         state["last_card"] = card
         state["last_print"] = print_item
         state["prints"] = (state.get("prints", []) + [print_item])[-50:]
@@ -984,8 +1031,24 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         payload.status or "online",
         payload.message or "Device status check accepted",
     )
+    latest_state = load_state()
+    notice = None
+    if latest_state.get("ready_notice_pending") and latest_state.get("ready_notice_key") == latest_state.get("persona_queue_key"):
+        cursor = int(latest_state.get("cursor", 0))
+        notice = record_system_print(
+            ready_notice_card(cfg),
+            {"phase": "System", "title": "Cards Ready", "kind": "ready_notice"},
+            latest_state,
+            cfg,
+            cursor,
+        )
+        latest_state = load_state()
+        latest_state["ready_notice_pending"] = False
+        latest_state["ready_notice_delivered_at"] = utc_now()
+        save_state(latest_state)
+
     public = public_state(load_state())
-    return {
+    response = {
         "ok": True,
         "detail": "Device accepted",
         "hardware": hardware,
@@ -997,6 +1060,10 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
             "next_step": public["next_step"],
         },
     }
+    if notice:
+        response["card"] = notice["card"]
+        response["print"] = notice["print"]
+    return response
 
 
 @app.get("/portal/{game_id}/{step}", response_class=HTMLResponse)

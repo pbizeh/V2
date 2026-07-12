@@ -463,6 +463,10 @@ def wait_for_press_with_live_controls(wlan):
                 data = result.get("data")
                 if not (result.get("ok") and isinstance(data, dict) and data.get("ok")):
                     print("Control status failed:", result.get("status_code"), short_detail(data))
+                else:
+                    card = data.get("card")
+                    if card:
+                        print_card(card)
             except Exception as exc:
                 print("Control status error:", exc)
             next_status_at = time.ticks_add(time.ticks_ms(), interval)
@@ -522,8 +526,11 @@ def main():
             })
             data = result.get("data")
             card = data.get("card") if isinstance(data, dict) else None
+            no_print = bool(isinstance(data, dict) and data.get("no_print"))
             if result.get("ok") and card:
                 print_card(card)
+            elif result.get("ok") and no_print:
+                print("No print:", data.get("reason", "app requested silence"))
             else:
                 print_status_card(
                     "No card returned by app."

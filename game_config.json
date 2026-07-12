@@ -63,7 +63,9 @@
   "persona_desire_title": "DESIRE",
   "persona_queue_wait_seconds": 0,
   "patience_card_title": "",
-  "patience_card_text": "Please be patient while cards are being generated.",
+  "patience_card_text": "Please be patient while cards are being generated. I'll let you know when they are here.",
+  "ready_notice_card_title": "",
+  "ready_notice_card_text": "Your cards are ready, thank you for your patience.",
   "persona_raster": {
     "width": 384,
     "height": 320,
