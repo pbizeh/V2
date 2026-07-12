@@ -10,6 +10,25 @@
   },
   "print_preview_columns": 42,
   "print_preview_divider": "------------------------------------------",
+  "print_profile": {
+    "paper_width_mm": 58,
+    "printable_width_mm": 48,
+    "text_columns": 42,
+    "title_columns": 21,
+    "title_width_multiplier": 2,
+    "title_height_multiplier": 2,
+    "divider": "------------------------------------------",
+    "body_font": "printer ASCII",
+    "qr_mode": "native printer QR",
+    "preview_note": "The main portal preview should mimic 58mm thermal paper. Text is ASCII/native printer text. QR codes use the printer QR command. Only image cards should be rasterized."
+  },
+  "raster_policy": {
+    "text": "native ASCII printer text",
+    "qr": "native printer QR command",
+    "images": "1-bit black-and-white raster bitmap only",
+    "rasterize_only_images": true,
+    "preferred_raster_location": "ESP32 only when the source is already image-like; app-side if AI/image processing is needed first"
+  },
   "story_portal_base_url": "",
   "qr_card_text": "Scan this to submit the winning story.",
   "fallback_round_title": "A new turn of the voyage",
@@ -30,7 +49,7 @@
     "temperature": 0.8,
     "max_tokens": 700,
     "timeout_seconds": 25,
-    "system_prompt": "You write concise, playable, thermal-printer-friendly cards for a live storytelling game. Keep output plain text. Do not use Markdown tables."
+    "system_prompt": "You write concise, playable, thermal-printer-friendly cards for a live storytelling game on 58mm paper. Keep output plain ASCII-style text. Do not use Markdown tables, emoji, decorative Unicode, or layouts that require proportional fonts."
   },
   "scenario_steps": [
     {
@@ -187,7 +206,8 @@
   "prompts": {
     "persona_generation": "Generate {count} short persona cards for a thermal printer. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Each card should be numbered and include: name, age cue, pronouns or sexuality cue, 2-3 personality hashtags, and one secret desire after the fold line. Keep the whole output compact.",
     "round_title": "Create one short playable round title for Jim and Julia on a seven-day ship ride. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Persona list: {persona_list}. Return only the title.",
-    "round_story": "Create one concise story setup for Jim, Julia, and these passengers: {persona_list}. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. End with a clear invitation for players to tell stories. Keep it short enough for a thermal printer."
+    "round_story": "Create one concise story setup for Jim, Julia, and these passengers: {persona_list}. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. End with a clear invitation for players to tell stories. Keep it short enough for a thermal printer.",
+    "thermal_style": "Write for 58mm thermal paper. Keep lines short, paragraphs compact, and output plain text. Avoid markdown tables, decorative Unicode, long dashes, emoji, or layout that depends on proportional fonts."
   },
   "instructions": {
     "scenario_progression": "The START/NEXT button advances one entry in scenario_steps. Scenarios.xlsx is reference only and is not read by the app.",

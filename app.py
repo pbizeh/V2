@@ -314,8 +314,9 @@ def wrap_text(text: str, width: int) -> list[str]:
 
 
 def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> str:
-    width = int(cfg.get("print_preview_columns", 42))
-    divider = str(cfg.get("print_preview_divider", "-" * min(width, 42)))
+    print_profile = cfg.get("print_profile") or {}
+    width = int(print_profile.get("text_columns", cfg.get("print_preview_columns", 42)))
+    divider = str(print_profile.get("divider", cfg.get("print_preview_divider", "-" * min(width, 42))))
     lines = [
         center_text(card.get("title", "PRINT"), width),
         divider[:width],
@@ -340,6 +341,7 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
 
 
 def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any], cursor: int) -> dict[str, Any]:
+    print_profile = cfg.get("print_profile") or {}
     preview = render_print_preview(card, state, cfg)
     return {
         "id": str(uuid.uuid4())[:8],
@@ -347,6 +349,10 @@ def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any
         "step_index": cursor,
         "title": card.get("title", "PRINT"),
         "preview": preview,
+        "columns": int(print_profile.get("text_columns", cfg.get("print_preview_columns", 42))),
+        "paper_width_mm": float(print_profile.get("paper_width_mm", 58)),
+        "printable_width_mm": float(print_profile.get("printable_width_mm", 48)),
+        "raster_policy": cfg.get("raster_policy", {}),
         "card": card,
         "step": step,
         "settings": state.get("settings", {}),
@@ -570,12 +576,32 @@ HTML = """
     input[type="range"] {{ width: min(240px, 70vw); }}
     label.slider {{ display: grid; gap: 5px; min-width: 220px; font-weight: 700; }}
     label.slider span {{ font-weight: 400; color: #655d54; }}
-    pre {{ white-space: pre-wrap; background: #fbfaf8; border: 1px solid #e6ded4; border-radius: 8px; padding: 14px; min-height: 180px; }}
+    pre {{ white-space: pre-wrap; margin: 0; }}
     .muted {{ color: #655d54; }}
     .print-feed {{ display: grid; gap: 12px; margin-top: 16px; }}
     .print-feed article {{ border-top: 1px solid #e6ded4; padding-top: 12px; }}
     .print-feed h3 {{ margin: 0 0 8px; font-size: 16px; }}
     .current-label {{ margin: 18px 0 8px; font-weight: 700; }}
+    .thermal-paper {{
+      width: min(100%, 360px);
+      min-height: 180px;
+      box-sizing: border-box;
+      background: #fff;
+      color: #000;
+      border-radius: 2px;
+      border: 1px solid #d8d2c8;
+      padding: 16px 14px;
+      box-shadow: 0 8px 20px rgba(0,0,0,.08);
+      font-family: "Courier New", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.18;
+      letter-spacing: 0;
+      image-rendering: pixelated;
+      overflow-wrap: anywhere;
+    }}
+    .thermal-paper pre {{ min-height: 0; background: transparent; border: 0; padding: 0; }}
+    .thermal-paper.empty {{ color: #555; }}
+    .thermal-feed {{ display: grid; gap: 10px; }}
   </style>
 </head>
 <body>
@@ -594,7 +620,7 @@ HTML = """
     <p class="muted" id="progress"></p>
     <p class="muted" id="hardwareLive">Waiting for hardware controls...</p>
     <p class="current-label">Most recent print</p>
-    <pre id="card"></pre>
+    <div id="cardPaper" class="thermal-paper empty"><pre id="card"></pre></div>
     <div id="feed" class="print-feed"></div>
   </section>
 </main>
@@ -620,6 +646,9 @@ function printText(item) {{
   if (!item) return "Press START/NEXT to create the first print.";
   return item.preview || `${{item.card?.title || ""}}\\n\\n${{item.card?.body || ""}}`;
 }}
+function escapeHtml(text) {{
+  return String(text || "").replace(/[&<>]/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}}[c]));
+}}
 function draw() {{
   document.getElementById("players").value = state.player_count || 4;
   const settings = state.settings || {{}};
@@ -633,9 +662,11 @@ function draw() {{
   document.getElementById("hardwareLive").textContent = hardware.last_seen
     ? `Hardware: ${{hardware.status || "online"}} | Last update ${{hardware.last_seen}} | Players ${{state.player_count || 4}} | AGE ${{settings.age || 50}} | QUEERNESS ${{settings.queerness || 50}} | DIVERSITY ${{settings.diversity || 50}}`
     : "Waiting for hardware controls...";
-  document.getElementById("card").textContent = printText(state.last_print);
+  const currentText = printText(state.last_print);
+  document.getElementById("card").textContent = currentText;
+  document.getElementById("cardPaper").classList.toggle("empty", !state.last_print);
   const older = (state.prints || []).slice(0, -1).reverse();
-  document.getElementById("feed").innerHTML = older.map(item => `<article><h3>Print ${{item.number}}: ${{item.title}}</h3><pre>${{printText(item).replace(/[&<>]/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;"}}[c]))}}</pre></article>`).join("");
+  document.getElementById("feed").innerHTML = older.map(item => `<article><h3>Print ${{item.number}}: ${{item.title}}</h3><div class="thermal-paper"><pre>${{escapeHtml(printText(item))}}</pre></div></article>`).join("");
 }}
 async function next() {{
   const res = await fetch("/api/next", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{settings: currentSettings(), player_count: currentPlayerCount()}})}});

@@ -81,12 +81,15 @@ Useful keys:
 - `default_settings` - initial `AGE`, `QUEERNESS`, and `DIVERSITY` values.
 - `print_preview_columns` - width of online print previews.
 - `print_preview_divider` - divider line used in print previews.
+- `print_profile` - thermal paper profile: paper width, printable width, text columns, title sizing, divider, and preview notes.
+- `raster_policy` - output policy: text stays native printer ASCII, QR stays native printer QR, and only image cards should become 1-bit raster bitmaps.
 - `openai.enabled` - set `false` to disable OpenAI calls.
 - `openai.text_model` - OpenAI text model.
 - `openai.system_prompt` - global AI behavior.
 - `prompts.persona_generation` - prompt for persona-card generation.
 - `prompts.round_title` - prompt for generated round titles.
 - `prompts.round_story` - prompt for generated story setups.
+- `prompts.thermal_style` - shared writing rule for compact 58mm thermal-printer text.
 - `fallback_round_title` and `fallback_round_story` - used if OpenAI is unavailable.
 - `device_secret` - shared secret expected from the ESP32.
 - `public_app_url` or `story_portal_base_url` - used for QR/story portal URLs.
@@ -101,6 +104,16 @@ Prompt templates may use:
 {persona_list}
 {count}
 ```
+
+## Print Output Rules
+
+The game is designed around 58mm thermal paper.
+
+- Text cards are sent as native printer text, not raster images.
+- QR cards use the printer's native QR command.
+- Only actual image content should be converted to a 1-bit black-and-white raster bitmap.
+- The main controller preview uses the same configured text width as the printer preview, so the on-screen card should feel close to the printed card before paper is used.
+- All prompt text and thermal-writing guidance lives in `game_config.json` under `prompts`, `openai.system_prompt`, `print_profile`, and `raster_policy`.
 
 ## OpenAI API Key On Render
 
