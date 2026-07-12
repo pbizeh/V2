@@ -3,6 +3,7 @@ import os
 import random
 import base64
 import time
+import html as html_lib
 import urllib.error
 import urllib.request
 import uuid
@@ -99,6 +100,8 @@ def default_state() -> dict[str, Any]:
         "button_waiting_for_ready_key": None,
         "vote_ballots_remaining": None,
         "vote_ballots_key": None,
+        "story_submissions": {},
+        "story_waiting_key": None,
         "last_card": None,
         "last_print": None,
         "prints": [],
@@ -722,6 +725,26 @@ def unique_portal_url(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     return f"{base}/{state.get('game_id')}/{state.get('presses')}"
 
 
+def story_portal_url(state: dict[str, Any], cfg: dict[str, Any], submission_id: str) -> str:
+    base = str(cfg.get("story_portal_base_url", "")).rstrip("/")
+    if not base:
+        public_url = str(cfg.get("public_app_url", "")).rstrip("/")
+        base = public_url + "/portal" if public_url else "/portal"
+    return f"{base}/{state.get('game_id')}/{submission_id}"
+
+
+def story_key(submission_id: str) -> str:
+    return "Story_" + str(submission_id).zfill(2)
+
+
+def character_winner_key(submission_id: str) -> str:
+    return "Character_winner_" + str(submission_id).zfill(2)
+
+
+def story_submitted(state: dict[str, Any], submission_id: str) -> bool:
+    return bool(state.get(story_key(submission_id)) and state.get(character_winner_key(submission_id)))
+
+
 def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     value = apply_placeholders(str(step.get("text", "")), state, cfg)
     phase = str(step.get("phase") or "Game")
@@ -760,6 +783,18 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             body = make_persona_cards(state, cfg)
             title = f"{phase}: Persona Cards"
         return {"title": title, "body": body, "footer": footer, "styles": styles}
+
+    if kind == "story_submission":
+        submission_id = str(step.get("submission_id", "01")).zfill(2)
+        qr_url = story_portal_url(state, cfg, submission_id)
+        return {
+            "title": apply_placeholders(str(step.get("print_title", "")), state, cfg),
+            "body": apply_placeholders(str(step.get("print_body", value)), state, cfg),
+            "footer": apply_placeholders(str(step.get("print_footer", "")), state, cfg),
+            "qr_url": qr_url,
+            "styles": styles,
+            "show_divider": bool(step.get("show_divider", False)),
+        }
 
     if kind == "qr" or "qr code" in lower or "story portal" in lower:
         qr_url = unique_portal_url(state, cfg)
@@ -823,6 +858,16 @@ def ready_notice_card(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": str(cfg.get("ready_notice_card_title", "")),
         "body": str(cfg.get("ready_notice_card_text", "Your cards are ready, thank you for your patience.")),
+        "footer": "",
+        "styles": cfg.get("print_text_styles", {}),
+        "show_divider": False,
+    }
+
+
+def story_submission_apology_card(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": "",
+        "body": str(cfg.get("story_submission_apology_text", "Sorry, but you should first submit the story.")),
         "footer": "",
         "styles": cfg.get("print_text_styles", {}),
         "show_divider": False,
@@ -919,6 +964,27 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     if button_is_waiting_for_cards(state):
         return no_print_response(state, cfg, "waiting_for_cards_ready_notice")
 
+    if str(step.get("kind", "")).lower() == "submission_gate":
+        submission_id = str(step.get("submission_id", "01")).zfill(2)
+        wait_key = f"{state.get('game_id')}:{submission_id}:story"
+        if story_submitted(state, submission_id):
+            if state.get("story_waiting_key") == wait_key:
+                state["story_waiting_key"] = None
+            state["cursor"] = min(cursor + 1, len(steps))
+            save_state(state)
+            return advance(load_state(), settings)
+        if state.get("story_waiting_key") == wait_key:
+            return no_print_response(state, cfg, "waiting_for_story_submission")
+        state["story_waiting_key"] = wait_key
+        return record_print_without_advancing(
+            story_submission_apology_card(cfg),
+            {"phase": "System", "title": "Story Required", "kind": "submission_gate"},
+            state,
+            cfg,
+            cursor,
+            bool(secret),
+        )
+
     if str(step.get("kind", "")).lower() == "generated_persona_batch":
         state = wait_for_persona_queue(state, cfg, step)
         if not state.get("persona_queue"):
@@ -1010,6 +1076,9 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "persona_names": state.get("persona_names", []),
         "persona_queue_remaining": len(state.get("persona_queue", [])),
         "persona_generation_status": state.get("persona_generation_status"),
+        "story_submissions": state.get("story_submissions", {}),
+        "Story_01": state.get("Story_01"),
+        "Character_winner_01": state.get("Character_winner_01"),
         "last_card": state.get("last_card"),
         "last_print": state.get("last_print"),
         "prints": state.get("prints", [])[-50:],
@@ -1132,7 +1201,63 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
 
 @app.get("/portal/{game_id}/{step}", response_class=HTMLResponse)
 async def portal(game_id: str, step: str) -> str:
-    return PORTAL_HTML.format(game_id=game_id, step=step)
+    state = load_state()
+    submission_id = str(step).zfill(2)
+    if state.get("game_id") != game_id:
+        return PORTAL_HTML.format(
+            game_id=html_lib.escape(game_id),
+            step=html_lib.escape(step),
+            options="",
+            disabled="disabled",
+            message="This story portal does not match the active game.",
+            submitted="false",
+        )
+    names = state.get("persona_names", [])[-int(state.get("player_count", 4)):] or state.get("persona_names", [])
+    options = "\n".join(
+        f'<option value="{html_lib.escape(str(name), quote=True)}">{html_lib.escape(str(name))}</option>'
+        for name in names
+    )
+    submitted = story_submitted(state, submission_id)
+    message = "Story already submitted." if submitted else ""
+    return PORTAL_HTML.format(
+        game_id=html_lib.escape(game_id),
+        step=html_lib.escape(submission_id),
+        options=options,
+        disabled="disabled" if submitted else "",
+        message=html_lib.escape(message),
+        submitted="true" if submitted else "false",
+    )
+
+
+@app.post("/portal/{game_id}/{step}")
+async def submit_story(game_id: str, step: str, request: Request) -> dict[str, Any]:
+    state = load_state()
+    submission_id = str(step).zfill(2)
+    if state.get("game_id") != game_id:
+        raise HTTPException(status_code=404, detail="Story portal does not match the active game")
+    if story_submitted(state, submission_id):
+        return {"ok": True, "already_submitted": True, "state": public_state(state)}
+    payload = await request.json()
+    character = clean_text(str(payload.get("character", ""))).strip()
+    story = clean_text(str(payload.get("story", ""))).strip()[:1000]
+    names = [str(name) for name in (state.get("persona_names", [])[-int(state.get("player_count", 4)):] or state.get("persona_names", []))]
+    if not character or character not in names:
+        raise HTTPException(status_code=400, detail="Choose one generated character")
+    if not story:
+        raise HTTPException(status_code=400, detail="Enter what happened")
+    state[character_winner_key(submission_id)] = character
+    state[story_key(submission_id)] = story
+    submissions = state.setdefault("story_submissions", {})
+    submissions[submission_id] = {
+        "character": character,
+        "story": story,
+        "submitted_at": utc_now(),
+    }
+    wait_key = f"{state.get('game_id')}:{submission_id}:story"
+    if state.get("story_waiting_key") == wait_key:
+        state["story_waiting_key"] = None
+    save_state(state)
+    return {"ok": True, "state": public_state(state)}
 
 
 HTML = """
@@ -1248,7 +1373,7 @@ function cardHtml(item) {{
   const body = card.body ? `<div class="paper-part paper-body" style="${{styleAttr(styles.body, 1)}}">${{escapeHtml(card.body)}}</div>` : "";
   const footer = card.footer ? `<div class="paper-part paper-footer" style="${{styleAttr(styles.footer, .9)}}">${{escapeHtml(card.footer)}}</div>` : "";
   const qr = card.qr_url ? `<div class="paper-part paper-footer">[native printer QR]\\n${{escapeHtml(card.qr_url)}}</div>` : "";
-  return title + image + body + footer + qr;
+  return title + image + body + qr + footer;
 }}
 function draw() {{
   document.getElementById("players").value = state.player_count || 4;
@@ -1433,11 +1558,65 @@ setInterval(loadState, 2500);
 PORTAL_HTML = """
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Story Portal</title></head>
-<body style="font-family: Arial, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px;">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Story Portal</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; max-width: 640px; margin: 32px auto; padding: 0 16px; color: #171717; }}
+    label {{ display: grid; gap: 7px; margin: 16px 0; font-weight: 700; }}
+    select, textarea {{ font: inherit; padding: 10px; border: 1px solid #cfc7bd; border-radius: 6px; }}
+    textarea {{ min-height: 180px; resize: vertical; }}
+    button {{ border: 0; border-radius: 8px; padding: 12px 16px; background: #111; color: white; font-weight: 700; }}
+    button:disabled, select:disabled, textarea:disabled {{ opacity: .55; }}
+    .muted {{ color: #655d54; }}
+    .message {{ margin-top: 14px; font-weight: 700; }}
+  </style>
+</head>
+<body>
   <h1>Story Portal</h1>
-  <p>Game {game_id}, step {step}</p>
-  <p>This placeholder page is ready to connect to the winner submission form.</p>
+  <p class="muted">Game {game_id}, story {step}</p>
+  <form id="storyForm">
+    <label>
+      Name of the character
+      <select id="character" required {disabled}>
+        {options}
+      </select>
+    </label>
+    <label>
+      What happened?
+      <textarea id="story" maxlength="1000" required {disabled}></textarea>
+    </label>
+    <button id="submitButton" type="submit" {disabled}>Submit story</button>
+  </form>
+  <p id="message" class="message">{message}</p>
+  <script>
+    const alreadySubmitted = {submitted};
+    const form = document.getElementById("storyForm");
+    const message = document.getElementById("message");
+    if (alreadySubmitted) {{
+      form.hidden = true;
+    }}
+    form.addEventListener("submit", async event => {{
+      event.preventDefault();
+      const payload = {{
+        character: document.getElementById("character").value,
+        story: document.getElementById("story").value
+      }};
+      const res = await fetch(location.pathname, {{
+        method: "POST",
+        headers: {{"Content-Type": "application/json"}},
+        body: JSON.stringify(payload)
+      }});
+      const data = await res.json().catch(() => ({{}}));
+      if (!res.ok || !data.ok) {{
+        message.textContent = data.detail || "Could not submit the story.";
+        return;
+      }}
+      form.hidden = true;
+      message.textContent = "Story submitted. Return to the game unit.";
+    }});
+  </script>
 </body>
 </html>
 """

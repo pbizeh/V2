@@ -280,15 +280,15 @@ def print_card(card):
     if body:
         print_text_part(body, body_style, config.PRINTER_TEXT_COLUMNS)
 
-    footer = card.get("footer")
-    if footer:
-        write("\n")
-        print_text_part(footer, footer_style, config.PRINTER_TEXT_COLUMNS)
-
     qr_url = card.get("qr_url")
     if qr_url and config.PRINT_NATIVE_QR:
         write("\n")
         print_qr(qr_url)
+
+    footer = card.get("footer")
+    if footer:
+        write("\n")
+        print_text_part(footer, footer_style, config.PRINTER_TEXT_COLUMNS)
 
     if card.get("show_divider"):
         write("\n" + config.DIVIDER + "\n")

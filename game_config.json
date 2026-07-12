@@ -1,6 +1,6 @@
 {
   "app_title": "Love Adventure V2",
-  "public_app_url": "",
+  "public_app_url": "https://v2-i64p.onrender.com",
   "device_secret": "Zorombaad",
   "default_player_count": 4,
   "default_settings": {
@@ -66,6 +66,7 @@
   "patience_card_text": "Please be patient while cards are being generated. I'll let you know when they are here.",
   "ready_notice_card_title": "",
   "ready_notice_card_text": "Your cards are ready, thank you for your patience.",
+  "story_submission_apology_text": "Sorry, but you should first submit the story.",
   "persona_raster": {
     "width": 384,
     "height": 320,
@@ -224,19 +225,18 @@
     {
       "phase": "Round 1",
       "title": "Story Portal",
-      "kind": "qr",
-      "text": "QR code that links to the unique story portal."
-    },
-    {
-      "phase": "Round 1",
-      "title": "Winner and desires",
-      "kind": "text",
-      "text": "Take this card to the round winner. They are the new Captain, and they score ONE point. They should scan the card and fill out the form. While they are doing this, explain one new rule. There are desires written on each persona card. They are folded downward so other players cannot read them. Your goal is to make your cards' desires come true. However, you cannot include them in your stories; you have to play the game in a way to realize their desires through either other players' stories or AI stories. When that desire is achieved, you win points as indicated on the card."
+      "kind": "story_submission",
+      "submission_id": "01",
+      "text": "Now let me know how the night went.",
+      "print_title": "",
+      "print_body": "Now let me know how the night went.",
+      "print_footer": "Take this card to the round winner. They are the new Captain, and they score ONE point. They should scan the card and fill out the form. While they are doing this, it is time to explain one new rule. There are desires written on each persona card. They are folded downward so other players cannot read them. Your goal is to make your cards' desires come true. However, you cannot include them in your stories; you have to play the game in a way to realize their desires through either other players' stories or AI stories. When that desire is achieved, you win points as indicated on the card."
     },
     {
       "phase": "Round 1",
       "title": "Submission gate",
-      "kind": "text",
+      "kind": "submission_gate",
+      "submission_id": "01",
       "text": "START/NEXT works only when the new captain submits."
     },
     {
