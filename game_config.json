@@ -60,6 +60,13 @@
   "fallback_round_title": "A new turn of the voyage",
   "fallback_round_story": "Jim and Julia notice a strange invitation slipped under their cabin door.",
   "persona_fold_line": "--- fold here ---",
+  "persona_desire_title": "DESIRE",
+  "persona_queue_wait_seconds": 8,
+  "persona_raster": {
+    "width": 384,
+    "height": 320,
+    "threshold": 180
+  },
   "fallback_persona_names": ["Jim", "Julia"],
   "static_personas": {
     "jim": {
@@ -85,6 +92,10 @@
   },
   "persona_name_pool": ["Alex", "Sam", "Riley", "Morgan", "Taylor", "Jordan", "Casey", "Jamie", "Robin", "Avery", "Quinn", "Drew"],
   "persona_traits": ["curious", "romantic", "restless", "tender", "bold", "careful", "funny", "dramatic"],
+  "persona_gender_pool": ["woman", "man", "non-binary person"],
+  "persona_sexuality_pool": ["straight", "bi", "queer", "pan"],
+  "persona_fallback_hashtags": ["#open_heart", "#soft_risk", "#new_story"],
+  "fallback_persona_image_prompt": "Centered front-facing black ink portrait of {name}, an average {age}-year-old {gender}, simple white background, thermal printer friendly, high contrast, clean silhouette, no text, no border, no frame.",
   "desire_templates": [
     "Secret desire: be invited into a risky plan.",
     "Secret desire: have someone defend your choice.",
@@ -94,6 +105,10 @@
   "openai": {
     "enabled": true,
     "text_model": "gpt-4.1-mini",
+    "image_model": "gpt-image-1",
+    "image_size": "1024x1024",
+    "image_quality": "low",
+    "image_timeout_seconds": 90,
     "temperature": 0.8,
     "max_tokens": 700,
     "timeout_seconds": 25,
@@ -114,6 +129,8 @@
       "title": "Instructions",
       "kind": "text",
       "lock_player_count": true,
+      "prepare_persona_batch_after": true,
+      "persona_profile": "average",
       "text": "Don't Worry If you haven't played this game. Throughout the game, I, the game unit AI will instruct you.\nFirst, let's find our first CAPTAIN. The first Captain is the player who has not been in a relationship for the longest. If you are all in relationships, then the player in the shortest relationship is the Captain. When you find the Captain, pass me to them.",
       "print_title": "",
       "print_body": "Don't Worry If you haven't played this game. Throughout the game, I, the game unit AI will instruct you.\nFirst, let's find our first CAPTAIN. The first Captain is the player who has not been in a relationship for the longest. If you are all in relationships, then the player in the shortest relationship is the Captain. When you find the Captain, pass me to them.",
@@ -153,15 +170,10 @@
     },
     {
       "phase": "Start",
-      "title": "Captain setup",
-      "kind": "text",
-      "text": "The Captain takes hold of the box and presses the START/NEXT button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain."
-    },
-    {
-      "phase": "Start",
       "title": "Persona Cards",
-      "kind": "persona",
-      "text": "Print N persona cards based on the number of players. Add names to the persona list. Include a perforated line and desires."
+      "kind": "generated_persona_batch",
+      "persona_profile": "average",
+      "text": "Print N prepared persona cards based on the number of players. Add names to the persona list. Include a perforated line and desires."
     },
     {
       "phase": "Round 1",
@@ -215,12 +227,15 @@
       "phase": "Round 2",
       "title": "Captain setup",
       "kind": "text",
+      "prepare_persona_batch_after": true,
+      "persona_profile": "controls",
       "text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain."
     },
     {
       "phase": "Round 2",
       "title": "Persona Cards",
-      "kind": "persona",
+      "kind": "generated_persona_batch",
+      "persona_profile": "controls",
       "text": "Print N persona cards based on Age, Queerness, and Diversity. Add names to the persona list. Include a perforated line and desires."
     },
     {
@@ -268,6 +283,7 @@
   ],
   "prompts": {
     "persona_generation": "Generate {count} short persona cards for a thermal printer. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Each card should be numbered and include: name, age cue, pronouns or sexuality cue, 2-3 personality hashtags, and one secret desire after the fold line. Keep the whole output compact.",
+    "persona_single_generation": "Generate persona card {index} of {count} for a live thermal-printer storytelling game. Persona profile: {persona_profile}. If persona_profile is average, keep everything average and grounded. If persona_profile is controls, use the current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Do not use these names: {avoid_names}. Return exactly one JSON object with keys: name, age, sexuality, gender, hashtags, desire, image_prompt. The name must be unique and easy to print. Use age as a number. hashtags must be 2-4 short strings. desire must be one compact secret desire, without adding extra rules. image_prompt must describe a centered front-facing black ink portrait on a pure white background, high contrast, thermal-printer friendly, no text, no border, no frame.",
     "round_title": "Create one short playable round title for Jim and Julia on a seven-day ship ride. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Persona list: {persona_list}. Return only the title.",
     "round_story": "Create one concise story setup for Jim, Julia, and these passengers: {persona_list}. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. End with a clear invitation for players to tell stories. Keep it short enough for a thermal printer.",
     "thermal_style": "Write for 58mm thermal paper. Keep lines short, paragraphs compact, and output plain text. Avoid markdown tables, decorative Unicode, long dashes, emoji, or layout that depends on proportional fonts."

@@ -1,11 +1,15 @@
 import json
 import os
 import random
+import base64
+import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
+from threading import Thread
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -52,7 +56,9 @@ def read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temp_path.replace(path)
 
 
 def load_config() -> dict[str, Any]:
@@ -89,6 +95,7 @@ def default_state() -> dict[str, Any]:
         "captain_index": 0,
         "scores": {},
         "persona_names": [],
+        "persona_queue": [],
         "last_card": None,
         "last_print": None,
         "prints": [],
@@ -258,6 +265,320 @@ def ai_or_fallback(prompt_key: str, fallback_key: str, state: dict[str, Any], cf
     if generated:
         return clean_text(generated)
     return clean_text(render_template(str(cfg.get(fallback_key, "")), state, cfg, extra))
+
+
+def parse_json_array(text: str | None) -> list[dict[str, Any]]:
+    if not text:
+        return []
+    raw = text.strip()
+    start = raw.find("[")
+    end = raw.rfind("]")
+    if start >= 0 and end > start:
+        raw = raw[start:end + 1]
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
+
+def parse_json_object(text: str | None) -> dict[str, Any]:
+    if not text:
+        return {}
+    raw = text.strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        raw = raw[start:end + 1]
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def normalize_hashtags(value: Any, cfg: dict[str, Any]) -> list[str]:
+    if isinstance(value, list):
+        words = [str(item) for item in value]
+    else:
+        words = str(value or "").replace(",", " ").split()
+    tags: list[str] = []
+    for word in words:
+        tag = word if word.startswith("#") else "#" + word
+        tag = "#" + "".join(ch for ch in tag[1:] if ch.isalnum() or ch == "_")
+        if 1 < len(tag) <= 18 and tag not in tags:
+            tags.append(tag)
+        if len(tags) >= 4:
+            break
+    for tag in cfg.get("persona_fallback_hashtags", ["#open_heart", "#soft_risk", "#new_story"]):
+        if len(tags) >= 3:
+            break
+        if tag not in tags:
+            tags.append(tag)
+    return tags[:4]
+
+
+def clean_name(value: Any) -> str:
+    name = clean_text(str(value or "")).strip()
+    name = "".join(ch for ch in name if ch.isalnum() or ch in " -'")
+    return name.strip()[:24]
+
+
+def avoided_persona_names(state: dict[str, Any], cfg: dict[str, Any], extra: list[str] | None = None) -> list[str]:
+    names = [str(item) for item in state.get("persona_names", [])]
+    names.extend(str(item.get("name", "")) for item in (cfg.get("static_personas") or {}).values())
+    if extra:
+        names.extend(extra)
+    seen: set[str] = set()
+    result: list[str] = []
+    for name in names:
+        cleaned = clean_name(name)
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            result.append(cleaned)
+    return result
+
+
+def fallback_generated_persona(index: int, cfg: dict[str, Any], avoid_names: list[str] | None = None) -> dict[str, Any]:
+    names = cfg.get("persona_name_pool", ["Alex", "Sam", "Riley", "Morgan"])
+    traits = cfg.get("persona_traits", ["curious", "tender", "bold"])
+    genders = cfg.get("persona_gender_pool", ["woman", "man", "non-binary"])
+    sexualities = cfg.get("persona_sexuality_pool", ["bi", "queer", "pan"])
+    avoided = {name.casefold() for name in (avoid_names or [])}
+    available = [name for name in names if str(name).casefold() not in avoided] or names
+    name = str(available[(index - 1) % len(available)])
+    trait = random.choice(traits)
+    gender = random.choice(genders)
+    sexuality = random.choice(sexualities)
+    age = random.randint(28, 52)
+    return {
+        "name": name,
+        "age": age,
+        "sexuality": sexuality,
+        "gender": gender,
+        "hashtags": normalize_hashtags([trait, "open_heart", "soft_risk"], cfg),
+        "desire": random.choice(cfg.get("desire_templates", ["Secret desire: be invited into a risky plan."])),
+        "image_prompt": render_template(str(cfg.get("fallback_persona_image_prompt", "")), {}, cfg, {
+            "name": name,
+            "age": age,
+            "sexuality": sexuality,
+            "gender": gender,
+            "hashtags": " ".join([trait]),
+        }),
+    }
+
+
+def openai_image(prompt: str, cfg: dict[str, Any]):
+    api_key = os.getenv("OPENAI_API_KEY")
+    openai_cfg = cfg.get("openai", {})
+    if not api_key or not prompt:
+        return None
+    payload = {
+        "model": openai_cfg.get("image_model", "gpt-image-1-mini"),
+        "prompt": prompt,
+        "size": openai_cfg.get("image_size", "1024x1024"),
+        "quality": openai_cfg.get("image_quality", "low"),
+        "n": 1,
+    }
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/images/generations",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=int(openai_cfg.get("image_timeout_seconds", 90))) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        image_data = data["data"][0]
+        if image_data.get("b64_json"):
+            raw = base64.b64decode(image_data["b64_json"])
+        else:
+            with urllib.request.urlopen(image_data["url"], timeout=90) as image_response:
+                raw = image_response.read()
+        from PIL import Image
+        return Image.open(BytesIO(raw)).convert("RGB")
+    except Exception:
+        return None
+
+
+def image_to_card_payload(image, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    if image is None:
+        return None
+    from PIL import ImageOps
+    raster_cfg = cfg.get("persona_raster", {})
+    width = int(raster_cfg.get("width", 384))
+    height = int(raster_cfg.get("height", 320))
+    threshold = int(raster_cfg.get("threshold", 180))
+    gray = ImageOps.grayscale(image)
+    gray = ImageOps.autocontrast(gray)
+    gray = ImageOps.fit(gray, (width, height), centering=(0.5, 0.42))
+    bw = gray.point(lambda p: 255 if p > threshold else 0, "1")
+    pixels = bw.load()
+    raw = bytearray()
+    for y in range(height):
+        for xb in range(0, width, 8):
+            byte = 0
+            for bit in range(8):
+                if pixels[xb + bit, y] == 0:
+                    byte |= 1 << (7 - bit)
+            raw.append(byte)
+    preview = BytesIO()
+    bw.convert("L").save(preview, format="PNG")
+    return {
+        "image_raster": {
+            "width": width,
+            "height": height,
+            "mode": "1bit_msb",
+            "bytes_hex": raw.hex(),
+        },
+        "image_data_url": "data:image/png;base64," + base64.b64encode(preview.getvalue()).decode("ascii"),
+    }
+
+
+def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    styles = cfg.get("print_text_styles", {})
+    name = clean_text(str(data.get("name") or "PERSONA")).upper()
+    hashtags = normalize_hashtags(data.get("hashtags"), cfg)
+    metadata = " | ".join(
+        clean_text(str(data.get(key, "")))
+        for key in ("age", "sexuality", "gender")
+        if str(data.get(key, "")).strip()
+    )
+    fold_line = str(cfg.get("persona_fold_line", "--- fold here ---"))
+    desire_title = str(cfg.get("persona_desire_title", "DESIRE"))
+    desire = clean_text(str(data.get("desire") or random.choice(cfg.get("desire_templates", ["Secret desire: be chosen."]))))
+    body = "\n\n".join(part for part in [
+        metadata,
+        " ".join(hashtags),
+        fold_line,
+        desire_title,
+        desire,
+    ] if part)
+    card = {
+        "title": name,
+        "body": body,
+        "footer": "",
+        "styles": styles,
+        "show_divider": False,
+    }
+    image_payload = image_to_card_payload(openai_image(str(data.get("image_prompt", "")), cfg), cfg)
+    if image_payload:
+        card.update(image_payload)
+    return card
+
+
+def persona_batch_key(state: dict[str, Any], step: dict[str, Any] | None = None) -> str:
+    profile = str((step or {}).get("persona_profile", "average"))
+    return f"{state.get('game_id')}:{state.get('player_count', 4)}:{profile}"
+
+
+def generate_one_persona(
+    state: dict[str, Any],
+    cfg: dict[str, Any],
+    index: int,
+    avoid_names: list[str],
+    step: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    count = max(1, min(12, int(state.get("player_count", 4))))
+    profile = str((step or {}).get("persona_profile", "average"))
+    controls = {"age": 50, "queerness": 50, "diversity": 50} if profile == "average" else state.get("settings", {})
+    prompt_state = {**state, "settings": controls}
+    prompt = render_template(
+        prompt_text("persona_single_generation", cfg),
+        prompt_state,
+        cfg,
+        {
+            "index": index,
+            "count": count,
+            "avoid_names": ", ".join(avoid_names) or "none",
+            "persona_profile": profile,
+        },
+    )
+    data = parse_json_object(openai_chat(prompt, cfg) if prompt else None)
+    name = clean_name(data.get("name"))
+    if not name or name.casefold() in {item.casefold() for item in avoid_names}:
+        data = fallback_generated_persona(index, cfg, avoid_names)
+    else:
+        data["name"] = name
+    if not str(data.get("image_prompt", "")).strip():
+        data["image_prompt"] = render_template(str(cfg.get("fallback_persona_image_prompt", "")), prompt_state, cfg, data)
+    return persona_card_from_data(data, cfg)
+
+
+def generate_persona_batch(state: dict[str, Any], cfg: dict[str, Any], step: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    count = max(1, min(12, int(state.get("player_count", 4))))
+    avoid_names = avoided_persona_names(state, cfg)
+    cards = []
+    for index in range(1, count + 1):
+        card = generate_one_persona(state, cfg, index, avoid_names, step)
+        cards.append(card)
+        name = clean_name(card.get("title", "")).title()
+        if name:
+            avoid_names.append(name)
+    names = [clean_name(card.get("title", "")).title() for card in cards if card.get("title")]
+    if names:
+        state["persona_names"] = (state.get("persona_names", []) + names)[-30:]
+    return cards
+
+
+def prepare_persona_batch(state: dict[str, Any], cfg: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
+    key = persona_batch_key(state, step)
+    if state.get("persona_queue_key") == key and len(state.get("persona_queue", [])) >= int(state.get("player_count", 4)):
+        return state
+    state["persona_generation_status"] = {
+        "status": "generating",
+        "started_at": utc_now(),
+        "count": int(state.get("player_count", 4)),
+        "profile": str(step.get("persona_profile", "average")),
+    }
+    cards = generate_persona_batch(state, cfg, step)
+    state["persona_queue"] = cards
+    state["persona_queue_key"] = key
+    state["persona_generation_status"] = {
+        "status": "ready",
+        "finished_at": utc_now(),
+        "count": len(cards),
+        "profile": str(step.get("persona_profile", "average")),
+    }
+    return state
+
+
+def start_persona_batch_preparation(state: dict[str, Any], cfg: dict[str, Any], step: dict[str, Any]) -> None:
+    key = persona_batch_key(state, step)
+    if state.get("persona_queue_key") == key and state.get("persona_queue"):
+        return
+    status = state.get("persona_generation_status") or {}
+    if status.get("status") == "generating" and status.get("key") == key:
+        return
+    state["persona_generation_status"] = {
+        "status": "generating",
+        "started_at": utc_now(),
+        "count": int(state.get("player_count", 4)),
+        "profile": str(step.get("persona_profile", "average")),
+        "key": key,
+    }
+    save_state(state)
+
+    state_snapshot = json.loads(json.dumps(state))
+    step_snapshot = json.loads(json.dumps(step))
+
+    def worker() -> None:
+        cfg_snapshot = load_config()
+        generated_state = prepare_persona_batch(state_snapshot, cfg_snapshot, step_snapshot)
+        latest_state = load_state()
+        if latest_state.get("game_id") != state_snapshot.get("game_id"):
+            return
+        latest_state["persona_queue"] = generated_state.get("persona_queue", [])
+        latest_state["persona_queue_key"] = generated_state.get("persona_queue_key")
+        latest_state["persona_names"] = generated_state.get("persona_names", latest_state.get("persona_names", []))
+        latest_state["persona_generation_status"] = generated_state.get("persona_generation_status")
+        save_state(latest_state)
+
+    Thread(target=worker, daemon=True).start()
 
 
 def random_persona(state: dict[str, Any], cfg: dict[str, Any], index: int) -> str:
@@ -443,6 +764,29 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     }
 
 
+def wait_for_persona_queue(state: dict[str, Any], cfg: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
+    key = persona_batch_key(state, step)
+    wait_seconds = int(cfg.get("persona_queue_wait_seconds", 8))
+    deadline = time.time() + max(0, wait_seconds)
+    while time.time() < deadline:
+        latest = load_state()
+        if latest.get("game_id") != state.get("game_id"):
+            return latest
+        if latest.get("persona_queue_key") == key and latest.get("persona_queue"):
+            return latest
+        time.sleep(0.5)
+    return state
+
+
+def persona_batch_step_for_prepare(cfg: dict[str, Any], current_step: dict[str, Any]) -> dict[str, Any]:
+    for step in load_scenario_steps(cfg):
+        if str(step.get("kind", "")).lower() == "generated_persona_batch":
+            prepared = dict(step)
+            prepared["persona_profile"] = current_step.get("persona_profile", prepared.get("persona_profile", "average"))
+            return prepared
+    return {"kind": "generated_persona_batch", "title": "Persona Cards", "persona_profile": current_step.get("persona_profile", "average")}
+
+
 def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = load_config()
     secret = device_secret(cfg)
@@ -456,6 +800,25 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     step = steps[cursor]
     if step.get("lock_player_count"):
         state["player_count_locked"] = True
+
+    if str(step.get("kind", "")).lower() == "generated_persona_batch":
+        state = wait_for_persona_queue(state, cfg, step)
+        if not state.get("persona_queue"):
+            state = prepare_persona_batch(state, cfg, step)
+        queue = list(state.get("persona_queue", []))
+        card = queue.pop(0)
+        print_item = build_print(card, step, state, cfg, cursor)
+        state["persona_queue"] = queue
+        state["last_card"] = card
+        state["last_print"] = print_item
+        state["prints"] = (state.get("prints", []) + [print_item])[-50:]
+        state["presses"] = int(state.get("presses", 0)) + 1
+        state["cursor"] = cursor if queue else min(cursor + 1, len(steps))
+        state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item})
+        state["device_secret_required"] = bool(secret)
+        save_state(state)
+        return {"card": card, "print": print_item, "state": public_state(state), "done": state["cursor"] >= len(steps)}
+
     card = build_card(step, state, cfg)
     print_item = build_print(card, step, state, cfg, cursor)
     state["last_card"] = card
@@ -466,6 +829,8 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     state.setdefault("log", []).append({"cursor": cursor, "step": step, "card": card, "print": print_item})
     state["device_secret_required"] = bool(secret)
     save_state(state)
+    if step.get("prepare_persona_batch_after"):
+        start_persona_batch_preparation(state, cfg, persona_batch_step_for_prepare(cfg, step))
     return {"card": card, "print": print_item, "state": public_state(state), "done": state["cursor"] >= len(steps)}
 
 
@@ -484,6 +849,8 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "scores": state.get("scores", {}),
         "settings": normalize_settings(state.get("settings", {})),
         "persona_names": state.get("persona_names", []),
+        "persona_queue_remaining": len(state.get("persona_queue", [])),
+        "persona_generation_status": state.get("persona_generation_status"),
         "last_card": state.get("last_card"),
         "last_print": state.get("last_print"),
         "prints": state.get("prints", [])[-50:],
@@ -708,7 +1075,8 @@ function cardHtml(item) {{
   if (!card) return `<pre>${{escapeHtml(printText(item))}}</pre>`;
   const styles = card.styles || {{}};
   const title = card.title ? `<div class="paper-part paper-title" style="${{styleAttr(styles.title, 1.65)}}">${{escapeHtml(card.title)}}</div>` : "";
-  const image = card.image_url ? `<img class="paper-image" alt="" src="${{escapeHtml(card.image_url)}}">` : "";
+  const imageSrc = card.image_data_url || card.image_url || "";
+  const image = imageSrc ? `<img class="paper-image" alt="" src="${{escapeHtml(imageSrc)}}">` : "";
   const body = card.body ? `<div class="paper-part paper-body" style="${{styleAttr(styles.body, 1)}}">${{escapeHtml(card.body)}}</div>` : "";
   const footer = card.footer ? `<div class="paper-part paper-footer" style="${{styleAttr(styles.footer, .9)}}">${{escapeHtml(card.footer)}}</div>` : "";
   const qr = card.qr_url ? `<div class="paper-part paper-footer">[native printer QR]\\n${{escapeHtml(card.qr_url)}}</div>` : "";
