@@ -96,6 +96,7 @@ def default_state() -> dict[str, Any]:
         "scores": {},
         "persona_names": [],
         "persona_queue": [],
+        "button_waiting_for_ready_key": None,
         "last_card": None,
         "last_print": None,
         "prints": [],
@@ -817,6 +818,10 @@ def no_print_response(state: dict[str, Any], cfg: dict[str, Any], reason: str) -
     return {"card": None, "print": None, "state": public_state(state), "done": False, "no_print": True, "reason": reason}
 
 
+def button_is_waiting_for_cards(state: dict[str, Any]) -> bool:
+    return bool(state.get("button_waiting_for_ready_key"))
+
+
 def record_print_without_advancing(
     card: dict[str, Any],
     step: dict[str, Any],
@@ -867,6 +872,9 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
     if step.get("lock_player_count"):
         state["player_count_locked"] = True
 
+    if button_is_waiting_for_cards(state):
+        return no_print_response(state, cfg, "waiting_for_cards_ready_notice")
+
     if str(step.get("kind", "")).lower() == "generated_persona_batch":
         state = wait_for_persona_queue(state, cfg, step)
         if not state.get("persona_queue"):
@@ -874,6 +882,7 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
             if state.get("persona_patience_key") == key:
                 return no_print_response(state, cfg, "persona_cards_still_generating")
             state["persona_patience_key"] = key
+            state["button_waiting_for_ready_key"] = key
             state["ready_notice_pending"] = False
             state["ready_notice_key"] = None
             save_state(state)
@@ -893,6 +902,8 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
         state["persona_queue"] = queue
         if state.get("ready_notice_key") == state.get("persona_queue_key"):
             state["ready_notice_pending"] = False
+        if state.get("button_waiting_for_ready_key") == state.get("persona_queue_key"):
+            state["button_waiting_for_ready_key"] = None
         state["last_card"] = card
         state["last_print"] = print_item
         state["prints"] = (state.get("prints", []) + [print_item])[-50:]
@@ -1044,6 +1055,8 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         )
         latest_state = load_state()
         latest_state["ready_notice_pending"] = False
+        if latest_state.get("button_waiting_for_ready_key") == latest_state.get("ready_notice_key"):
+            latest_state["button_waiting_for_ready_key"] = None
         latest_state["ready_notice_delivered_at"] = utc_now()
         save_state(latest_state)
 
