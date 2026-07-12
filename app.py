@@ -858,6 +858,33 @@ def record_system_print(
     return {"card": card, "print": print_item, "state": public_state(state), "done": False}
 
 
+def deliver_ready_notice_if_needed(state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any] | None:
+    waiting_key = state.get("button_waiting_for_ready_key")
+    ready_queue_key = state.get("persona_queue_key") if state.get("persona_queue") else None
+    pending_key = state.get("ready_notice_key") if state.get("ready_notice_pending") else None
+    notice_key = waiting_key if waiting_key and waiting_key == ready_queue_key else pending_key
+    if not notice_key or notice_key != state.get("persona_queue_key"):
+        return None
+
+    cursor = int(state.get("cursor", 0))
+    state["ready_notice_key"] = notice_key
+    notice = record_system_print(
+        ready_notice_card(cfg),
+        {"phase": "System", "title": "Cards Ready", "kind": "ready_notice"},
+        state,
+        cfg,
+        cursor,
+    )
+    latest_state = load_state()
+    latest_state["ready_notice_pending"] = False
+    if latest_state.get("button_waiting_for_ready_key") == notice_key:
+        latest_state["button_waiting_for_ready_key"] = None
+    latest_state["ready_notice_key"] = notice_key
+    latest_state["ready_notice_delivered_at"] = utc_now()
+    save_state(latest_state)
+    return notice
+
+
 def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = load_config()
     secret = device_secret(cfg)
@@ -972,6 +999,8 @@ async def index() -> HTMLResponse:
 
 @app.get("/api/state")
 async def api_state() -> dict[str, Any]:
+    cfg = load_config()
+    deliver_ready_notice_if_needed(load_state(), cfg)
     return public_state(load_state())
 
 
@@ -1043,28 +1072,7 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         payload.message or "Device status check accepted",
     )
     latest_state = load_state()
-    notice = None
-    waiting_key = latest_state.get("button_waiting_for_ready_key")
-    ready_queue_key = latest_state.get("persona_queue_key") if latest_state.get("persona_queue") else None
-    pending_key = latest_state.get("ready_notice_key") if latest_state.get("ready_notice_pending") else None
-    notice_key = waiting_key if waiting_key and waiting_key == ready_queue_key else pending_key
-    if notice_key and notice_key == latest_state.get("persona_queue_key"):
-        cursor = int(latest_state.get("cursor", 0))
-        latest_state["ready_notice_key"] = notice_key
-        notice = record_system_print(
-            ready_notice_card(cfg),
-            {"phase": "System", "title": "Cards Ready", "kind": "ready_notice"},
-            latest_state,
-            cfg,
-            cursor,
-        )
-        latest_state = load_state()
-        latest_state["ready_notice_pending"] = False
-        if latest_state.get("button_waiting_for_ready_key") == notice_key:
-            latest_state["button_waiting_for_ready_key"] = None
-        latest_state["ready_notice_key"] = notice_key
-        latest_state["ready_notice_delivered_at"] = utc_now()
-        save_state(latest_state)
+    notice = deliver_ready_notice_if_needed(latest_state, cfg)
 
     public = public_state(load_state())
     response = {
