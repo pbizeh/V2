@@ -470,6 +470,8 @@ def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[st
         "title": title,
         "body": "",
         "compact_title_spacing": True,
+        "title_image_gap_dots": int(content.get("persona_title_image_gap_dots", 6)),
+        "image_text_gap_dots": int(content.get("persona_image_text_gap_dots", 8)),
         "text_parts": [
             {"text": " ".join(hashtags)},
             {"text": fold_line, "blank_before": True},
@@ -820,6 +822,8 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             "title": name + (", " + age if age else ""),
             "body": hashtags,
             "compact_title_spacing": True,
+            "title_image_gap_dots": int(content.get("persona_title_image_gap_dots", 6)),
+            "image_text_gap_dots": int(content.get("persona_image_text_gap_dots", 8)),
             "footer": str(persona.get("footer", "")),
             "image_url": str(persona.get("image_url", "")),
             "image_raster": load_raster_payload(persona.get("raster_path")),

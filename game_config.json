@@ -59,6 +59,8 @@
     "captain_ballot_label": "C",
     "persona_default_name": "Persona",
     "persona_default_desire": "Secret desire: be chosen.",
+    "persona_title_image_gap_dots": 6,
+    "persona_image_text_gap_dots": 8,
     "generated_persona_system_title": "Generating Cards",
     "story_required_system_title": "Story Required"
   },
