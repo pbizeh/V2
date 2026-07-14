@@ -51,7 +51,7 @@
   "print_content": {
     "default_phase": "Game",
     "default_card_title": "Card",
-    "step_footer_template": "Step {step_number} | START/NEXT",
+    "step_footer_template": "",
     "vote_papers_title": "Vote Papers",
     "persona_cards_title": "Persona Cards",
     "story_portal_title": "Story Portal",
@@ -244,7 +244,7 @@
       "text": "Now let me know how the night went.",
       "print_title": "",
       "print_body": "Now let me know how the night went.",
-      "print_footer": "Take this card to the round winner. They are the new Captain, and they score ONE point. They should scan the card and fill out the form. While they are doing this, it is time to explain one new rule. There are desires written on each persona card. They are folded downward so other players cannot read them. Your goal is to make your cards' desires come true. However, you cannot include them in your stories; you have to play the game in a way to realize their desires through either other players' stories or AI stories. When that desire is achieved, you win points as indicated on the card."
+      "print_footer": ""
     },
     {
       "phase": "Round 1",

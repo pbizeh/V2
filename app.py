@@ -469,6 +469,7 @@ def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[st
     card = {
         "title": title,
         "body": "",
+        "compact_title_spacing": True,
         "text_parts": [
             {"text": " ".join(hashtags)},
             {"text": fold_line, "blank_before": True},
@@ -717,6 +718,7 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
 
 
 def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any], cursor: int) -> dict[str, Any]:
+    card["footer"] = ""
     print_profile = cfg.get("print_profile") or {}
     preview = render_print_preview(card, state, cfg)
     return {
@@ -817,6 +819,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
         return {
             "title": name + (", " + age if age else ""),
             "body": hashtags,
+            "compact_title_spacing": True,
             "footer": str(persona.get("footer", "")),
             "image_url": str(persona.get("image_url", "")),
             "image_raster": load_raster_payload(persona.get("raster_path")),
