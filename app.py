@@ -458,27 +458,23 @@ def image_to_card_payload(image, cfg: dict[str, Any]) -> dict[str, Any] | None:
 def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     styles = cfg.get("print_text_styles", {})
     content = cfg.get("print_content", {})
-    name = clean_text(str(data.get("name") or content.get("persona_default_name", "PERSONA"))).upper()
+    name = clean_text(str(data.get("name") or content.get("persona_default_name", "Persona")))
+    age = clean_text(str(data.get("age", ""))).strip()
+    title = name + (", " + age if age else "")
     hashtags = normalize_hashtags(data.get("hashtags"), cfg)
-    metadata = " | ".join(
-        clean_text(str(data.get(key, "")))
-        for key in ("age", "sexuality", "gender")
-        if str(data.get(key, "")).strip()
-    )
     fold_line = str(cfg.get("persona_fold_line", "--- fold here ---"))
-    desire_title = str(cfg.get("persona_desire_title", "DESIRE"))
+    desire_title = str(cfg.get("persona_desire_title", "DESIRES"))
     default_desire = str(content.get("persona_default_desire", "Secret desire: be chosen."))
     desire = clean_text(str(data.get("desire") or random.choice(cfg.get("desire_templates", [default_desire]))))
-    body = "\n\n".join(part for part in [
-        metadata,
-        " ".join(hashtags),
-        fold_line,
-        desire_title,
-        desire,
-    ] if part)
     card = {
-        "title": name,
-        "body": body,
+        "title": title,
+        "body": "",
+        "text_parts": [
+            {"text": " ".join(hashtags)},
+            {"text": fold_line, "blank_before": True},
+            {"text": desire_title, "blank_before": True, "style": {"align": "center"}},
+            {"text": desire},
+        ],
         "footer": "",
         "styles": styles,
         "show_divider": False,
@@ -700,6 +696,13 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
             lines.extend(wrap_text(paragraph, width))
         else:
             lines.append("")
+    for part in card.get("text_parts") or []:
+        if part.get("blank_before"):
+            lines.append("")
+        part_lines = wrap_text(str(part.get("text", "")), width)
+        if (part.get("style") or {}).get("align") == "center":
+            part_lines = [center_text(line, width) for line in part_lines]
+        lines.extend(part_lines)
     if card.get("qr_url"):
         lines.append("")
         lines.append(center_text("QR", width))
@@ -809,15 +812,11 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
         persona_id = str(step.get("persona_id", "")).strip()
         persona = (cfg.get("static_personas") or {}).get(persona_id, {})
         hashtags = " ".join(persona.get("hashtags", []))
-        metadata = " | ".join(
-            str(persona.get(key, "")).strip()
-            for key in ("age", "sexuality", "gender")
-            if str(persona.get(key, "")).strip()
-        )
-        body_lines = [line for line in [metadata, hashtags] if line]
+        name = clean_text(str(persona.get("name", card_title)))
+        age = clean_text(str(persona.get("age", ""))).strip()
         return {
-            "title": str(persona.get("name", card_title)).upper(),
-            "body": "\n\n".join(body_lines),
+            "title": name + (", " + age if age else ""),
+            "body": hashtags,
             "footer": str(persona.get("footer", "")),
             "image_url": str(persona.get("image_url", "")),
             "image_raster": load_raster_payload(persona.get("raster_path")),

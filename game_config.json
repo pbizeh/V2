@@ -57,7 +57,7 @@
     "story_portal_title": "Story Portal",
     "vote_instructions": "Detach one vote token and pass it face down.",
     "captain_ballot_label": "C",
-    "persona_default_name": "PERSONA",
+    "persona_default_name": "Persona",
     "persona_default_desire": "Secret desire: be chosen.",
     "generated_persona_system_title": "Generating Cards",
     "story_required_system_title": "Story Required"
@@ -74,7 +74,7 @@
   "fallback_round_title": "A new turn of the voyage",
   "fallback_round_story": "Jim and Julia notice a strange invitation slipped under their cabin door.",
   "persona_fold_line": "--- fold here ---",
-  "persona_desire_title": "DESIRE",
+  "persona_desire_title": "DESIRES",
   "persona_queue_wait_seconds": 0,
   "patience_card_title": "",
   "patience_card_text": "Please be patient while cards are being generated. I'll let you know when they are here.",
