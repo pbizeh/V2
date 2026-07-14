@@ -311,10 +311,6 @@ def connect_wifi():
         pass
     wlan.active(True)
     try:
-        wlan.config(pm=0xa11140)
-    except Exception:
-        pass
-    try:
         wlan.config(dhcp_hostname=getattr(config, "WIFI_HOSTNAME", "love-adventure-unit"))
     except Exception:
         pass
@@ -543,8 +539,9 @@ def main():
     printer_init()
     wlan = connect_wifi()
     if config.PRINT_STARTUP_CARD:
-        status = "Connection failed."
+        status = "Wi-Fi failed."
         if wlan.isconnected():
+            status = "App failed."
             try:
                 result = post_control_status("startup", "Startup check")
                 data = result.get("data")
