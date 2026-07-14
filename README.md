@@ -117,6 +117,7 @@ Useful keys:
 - `default_settings` - initial `AGE`, `QUEERNESS`, and `DIVERSITY`.
 - `print_profile` - 58mm thermal paper profile and print-preview rules.
 - `print_text_styles` - title/body/footer font sizing and alignment.
+- `print_content` - shared generated-card labels, default titles, vote text, and footer templates.
 - `raster_policy` - text stays native printer text, QR stays native printer QR, only image content is raster.
 - `static_personas` - Jim and Julia cards.
 - `persona_name_pool`, `persona_traits`, `persona_gender_pool`, `persona_sexuality_pool` - fallback persona generation data.
@@ -263,6 +264,7 @@ Main endpoints:
 - `POST /api/reset` - dashboard resets the game.
 - `POST /api/device/next` - ESP32 advances the game and receives the next printable card.
 - `POST /api/device/status` - ESP32 health/control check-in. It can also deliver a ready notice card.
+- `POST /api/device/sanity` - startup challenge-response check for Wi-Fi, app, authentication, protocol, and physical controls.
 - `GET /portal/{game_id}/{step}` - story portal form.
 - `POST /portal/{game_id}/{step}` - story portal submission.
 
@@ -366,7 +368,7 @@ The ESP32 sends live control updates to `/api/device/status` while it waits for 
 
 1. ESP32 boots and prints a startup status card.
 2. ESP32 connects to Wi-Fi.
-3. ESP32 sends a startup check to `/api/device/status`.
+3. ESP32 sends a challenge-response startup check to `/api/device/sanity`.
 4. While waiting for the button, ESP32 keeps sending live controls to `/api/device/status`.
 5. When the physical button is pressed, ESP32 reads controls and posts to `/api/device/next`.
 6. The Render app advances the shared game state.
@@ -377,24 +379,21 @@ The ESP32 sends live control updates to `/api/device/status` while it waits for 
 
 The startup status card is the first thing to read.
 
-Good startup includes:
+The startup card prints only:
 
 ```text
-Online. Press START/NEXT.
-App check: OK
-Progress: 0/23
+SUCCESSFUL
 ```
 
-This means Wi-Fi, Render, the device endpoint, and the device secret are working. A `DNS lookup: FAILED` line can appear on some MicroPython builds even when the real app request succeeds. Trust `App check: OK`.
+This means Wi-Fi, HTTPS, the Render app, the device secret, the firmware protocol version, the response challenge, and the physical control readings all passed. The unit makes up to three attempts before printing `FAILED`. Detailed failure information is written to the ESP32 serial console and the dashboard hardware status.
 
 If startup says:
 
 ```text
-App check: FAILED
-Detail: Bad device secret
+FAILED
 ```
 
-then Render `DEVICE_SECRET` and ESP32 `config.py` `DEVICE_SECRET` do not match.
+inspect the ESP32 serial console and dashboard. Typical causes are Wi-Fi/DNS failure, an unreachable app, a mismatched `DEVICE_SECRET`, or a mismatched `PROTOCOL_VERSION`.
 
 Button test on the ESP32:
 
@@ -415,7 +414,8 @@ If the value never changes, check the wire to `GPIO4 / IO4` and `GND`. If pressi
 
 Dashboard hardware meanings:
 
-- `Status: startup` means the ESP32 boot check reached the app.
+- `Status: sanity_successful` means the startup handshake passed.
+- `Status: sanity_failed` means the app received but rejected the startup handshake.
 - `Status: controls` means live hardware control updates are reaching the app.
 - `Status: next` means the physical button advanced the game.
 - `Accepted: no` means the device secret was rejected.

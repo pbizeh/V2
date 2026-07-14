@@ -43,6 +43,16 @@ class DeviceStatus(BaseModel):
     message: str | None = None
     settings: dict[str, int] | None = None
     player_count: int | None = None
+    lite: bool = False
+
+
+class DeviceSanity(BaseModel):
+    device_id: str = "printer-001"
+    secret: str | None = None
+    protocol_version: int
+    challenge: str
+    settings: dict[str, int] | None = None
+    player_count: int | None = None
 
 
 class NextRequest(BaseModel):
@@ -447,7 +457,8 @@ def image_to_card_payload(image, cfg: dict[str, Any]) -> dict[str, Any] | None:
 
 def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     styles = cfg.get("print_text_styles", {})
-    name = clean_text(str(data.get("name") or "PERSONA")).upper()
+    content = cfg.get("print_content", {})
+    name = clean_text(str(data.get("name") or content.get("persona_default_name", "PERSONA"))).upper()
     hashtags = normalize_hashtags(data.get("hashtags"), cfg)
     metadata = " | ".join(
         clean_text(str(data.get(key, "")))
@@ -456,7 +467,8 @@ def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[st
     )
     fold_line = str(cfg.get("persona_fold_line", "--- fold here ---"))
     desire_title = str(cfg.get("persona_desire_title", "DESIRE"))
-    desire = clean_text(str(data.get("desire") or random.choice(cfg.get("desire_templates", ["Secret desire: be chosen."]))))
+    default_desire = str(content.get("persona_default_desire", "Secret desire: be chosen."))
+    desire = clean_text(str(data.get("desire") or random.choice(cfg.get("desire_templates", [default_desire]))))
     body = "\n\n".join(part for part in [
         metadata,
         " ".join(hashtags),
@@ -626,20 +638,23 @@ def make_persona_cards(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     return "\n\n".join(random_persona(state, cfg, i + 1) for i in range(count))
 
 
-def make_vote_papers(state: dict[str, Any]) -> str:
+def make_vote_papers(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     count = int(state.get("player_count", 4))
-    labels = ["C"] + [str(i) for i in range(1, count)]
-    return "Detach one vote token and pass it face down.\n\n" + "\n".join(f"[ {label} ]" for label in labels)
+    content = cfg.get("print_content", {})
+    labels = [str(content.get("captain_ballot_label", "C"))] + [str(i) for i in range(1, count)]
+    instructions = str(content.get("vote_instructions", "Detach one vote token and pass it face down."))
+    return instructions + "\n\n" + "\n".join(f"[ {label} ]" for label in labels)
 
 
-def ballot_line(state: dict[str, Any]) -> str:
+def ballot_line(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     count = max(1, int(state.get("player_count", 4)))
-    return "   ".join(["C"] + [str(i) for i in range(1, count)])
+    captain_label = str(cfg.get("print_content", {}).get("captain_ballot_label", "C"))
+    return "   ".join([captain_label] + [str(i) for i in range(1, count)])
 
 
 def ballot_card(state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     return {
-        "title": ballot_line(state),
+        "title": ballot_line(state, cfg),
         "body": "",
         "footer": "",
         "styles": cfg.get("print_text_styles", {}),
@@ -747,11 +762,13 @@ def story_submitted(state: dict[str, Any], submission_id: str) -> bool:
 
 def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     value = apply_placeholders(str(step.get("text", "")), state, cfg)
-    phase = str(step.get("phase") or "Game")
-    card_title = str(step.get("title") or step.get("column_name") or "Card")
+    content = cfg.get("print_content", {})
+    phase = str(step.get("phase") or content.get("default_phase", "Game"))
+    card_title = str(step.get("title") or step.get("column_name") or content.get("default_card_title", "Card"))
     kind = str(step.get("kind") or "text").lower()
     title = f"{phase}: {card_title}"
-    footer = f"Step {state.get('cursor', 0) + 1} | START/NEXT"
+    footer_template = str(content.get("step_footer_template", "Step {step_number} | START/NEXT"))
+    footer = render_template(footer_template, state, cfg, {"step_number": state.get("cursor", 0) + 1})
     lower = value.lower()
     styles = cfg.get("print_text_styles", {})
 
@@ -777,11 +794,11 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
 
     if kind in {"persona", "vote"} or "n=number of players" in lower or "n vote papers" in lower:
         if kind == "vote" or "vote" in lower:
-            body = make_vote_papers(state)
-            title = f"{phase}: Vote Papers"
+            body = make_vote_papers(state, cfg)
+            title = f"{phase}: {content.get('vote_papers_title', 'Vote Papers')}"
         else:
             body = make_persona_cards(state, cfg)
-            title = f"{phase}: Persona Cards"
+            title = f"{phase}: {content.get('persona_cards_title', 'Persona Cards')}"
         return {"title": title, "body": body, "footer": footer, "styles": styles}
 
     if kind == "story_submission":
@@ -799,7 +816,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     if kind == "qr" or "qr code" in lower or "story portal" in lower:
         qr_url = unique_portal_url(state, cfg)
         return {
-            "title": f"{phase}: Story Portal",
+            "title": f"{phase}: {content.get('story_portal_title', 'Story Portal')}",
             "body": cfg.get("qr_card_text", "Scan this to submit the winning story."),
             "footer": footer,
             "qr_url": qr_url,
@@ -841,7 +858,8 @@ def persona_batch_step_for_prepare(cfg: dict[str, Any], current_step: dict[str, 
             prepared = dict(step)
             prepared["persona_profile"] = current_step.get("persona_profile", prepared.get("persona_profile", "average"))
             return prepared
-    return {"kind": "generated_persona_batch", "title": "Persona Cards", "persona_profile": current_step.get("persona_profile", "average")}
+    title = str(cfg.get("print_content", {}).get("persona_cards_title", "Persona Cards"))
+    return {"kind": "generated_persona_batch", "title": title, "persona_profile": current_step.get("persona_profile", "average")}
 
 
 def patience_card(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -978,7 +996,11 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
         state["story_waiting_key"] = wait_key
         return record_print_without_advancing(
             story_submission_apology_card(cfg),
-            {"phase": "System", "title": "Story Required", "kind": "submission_gate"},
+            {
+                "phase": "System",
+                "title": str(cfg.get("print_content", {}).get("story_required_system_title", "Story Required")),
+                "kind": "submission_gate",
+            },
             state,
             cfg,
             cursor,
@@ -1000,7 +1022,11 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
             state = load_state()
             return record_print_without_advancing(
                 patience_card(cfg),
-                {"phase": "System", "title": "Generating Cards", "kind": "patience"},
+                {
+                    "phase": "System",
+                    "title": str(cfg.get("print_content", {}).get("generated_persona_system_title", "Generating Cards")),
+                    "kind": "patience",
+                },
                 state,
                 cfg,
                 cursor,
@@ -1177,6 +1203,12 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         payload.status or "online",
         payload.message or "Device status check accepted",
     )
+    if payload.lite:
+        return {
+            "ok": True,
+            "detail": "Device accepted",
+        }
+
     latest_state = load_state()
     notice = deliver_ready_notice_if_needed(latest_state, cfg)
 
@@ -1197,6 +1229,56 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         response["card"] = notice["card"]
         response["print"] = notice["print"]
     return response
+
+
+@app.post("/api/device/sanity")
+async def api_device_sanity(payload: DeviceSanity) -> JSONResponse:
+    cfg = load_config()
+    state = load_state()
+    expected_protocol = 1
+
+    try:
+        validate_device_secret(payload.secret, cfg)
+    except HTTPException:
+        record_device_status(
+            state, payload.device_id, "sanity_failed", "Bad device secret", accepted=False
+        )
+        return JSONResponse(
+            {"ok": False, "detail": "Bad device secret"}, status_code=403
+        )
+
+    if payload.protocol_version != expected_protocol:
+        message = (
+            f"Protocol mismatch: unit={payload.protocol_version}, "
+            f"app={expected_protocol}"
+        )
+        record_device_status(
+            state, payload.device_id, "sanity_failed", message, accepted=False
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "detail": message,
+                "protocol_version": expected_protocol,
+            },
+            status_code=409,
+        )
+
+    state = apply_hardware_controls(state, payload.settings, payload.player_count)
+    record_device_status(
+        state,
+        payload.device_id,
+        "sanity_successful",
+        "Startup sanity check passed",
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "detail": "Device and app sanity check passed",
+            "protocol_version": expected_protocol,
+            "challenge": payload.challenge,
+        }
+    )
 
 
 @app.get("/portal/{game_id}/{step}", response_class=HTMLResponse)

@@ -48,6 +48,20 @@
       "preview_scale": 0.9
     }
   },
+  "print_content": {
+    "default_phase": "Game",
+    "default_card_title": "Card",
+    "step_footer_template": "Step {step_number} | START/NEXT",
+    "vote_papers_title": "Vote Papers",
+    "persona_cards_title": "Persona Cards",
+    "story_portal_title": "Story Portal",
+    "vote_instructions": "Detach one vote token and pass it face down.",
+    "captain_ballot_label": "C",
+    "persona_default_name": "PERSONA",
+    "persona_default_desire": "Secret desire: be chosen.",
+    "generated_persona_system_title": "Generating Cards",
+    "story_required_system_title": "Story Required"
+  },
   "raster_policy": {
     "text": "native ASCII printer text",
     "qr": "native printer QR command",
