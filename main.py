@@ -24,9 +24,26 @@ printer = UART(
 button = Pin(config.BUTTON_PIN, Pin.IN, Pin.PULL_UP)
 status_led = Pin(config.STATUS_LED_PIN, Pin.OUT) if config.STATUS_LED_PIN is not None else None
 boot_ms = time.ticks_ms()
+button_event = False
+button_pressed_at = 0
+button_irq_debounce_ms = int(getattr(config, "BUTTON_FAST_DEBOUNCE_MS", min(getattr(config, "BUTTON_DEBOUNCE_MS", 120), 25)))
 
 player_switch_a = Pin(getattr(config, "PLAYER_SWITCH_PIN_A", 15), Pin.IN, Pin.PULL_UP)
 player_switch_b = Pin(getattr(config, "PLAYER_SWITCH_PIN_B", 16), Pin.IN, Pin.PULL_UP)
+
+
+def button_irq(pin):
+    global button_event, button_pressed_at
+    now = time.ticks_ms()
+    if time.ticks_diff(now, button_pressed_at) > button_irq_debounce_ms:
+        button_event = True
+        button_pressed_at = now
+
+
+try:
+    button.irq(trigger=Pin.IRQ_FALLING, handler=button_irq)
+except Exception as exc:
+    print("Button IRQ setup failed:", exc)
 
 setup_errors = []
 pot_adcs = {}
@@ -83,7 +100,7 @@ def read_pot_percent(name):
         time.sleep_ms(int(getattr(config, "POT_SAMPLE_DELAY_MS", 2)))
     raw = total // max(1, samples)
     raw_max = 65535 if raw > 4095 else 4095
-    if bool(getattr(config, "POT_REVERSE", False)):
+    if bool(getattr(config, "POT_REVERSE_OUTPUT", True)) or bool(getattr(config, "POT_REVERSE", False)):
         raw = raw_max - raw
     return map_range(raw, 0, raw_max, 1, 100)
 
@@ -105,10 +122,14 @@ def read_control_settings():
 def read_player_count():
     left_active = player_switch_a.value() == 0
     right_active = player_switch_b.value() == 0
+    value_a = int(getattr(config, "PLAYER_SWITCH_VALUE_A", 4))
+    value_b = int(getattr(config, "PLAYER_SWITCH_VALUE_B", 6))
+    if bool(getattr(config, "PLAYER_SWITCH_REVERSE", True)):
+        value_a, value_b = value_b, value_a
     if left_active and not right_active:
-        return int(getattr(config, "PLAYER_SWITCH_VALUE_A", 4))
+        return value_a
     if right_active and not left_active:
-        return int(getattr(config, "PLAYER_SWITCH_VALUE_B", 6))
+        return value_b
     return int(getattr(config, "PLAYER_SWITCH_CENTER_VALUE", 5))
 
 
@@ -197,28 +218,9 @@ def normalize_text(text):
     return text
 
 
-def wrap_line(line, width):
-    words = line.split()
-    out = []
-    current = ""
-    for word in words:
-        if not current:
-            current = word
-        elif len(current) + 1 + len(word) <= width:
-            current += " " + word
-        else:
-            out.append(current)
-            current = word
-    if current:
-        out.append(current)
-    return out or [""]
-
-
 def print_wrapped(text, width=None):
-    width = int(width or config.PRINTER_TEXT_COLUMNS)
     for raw in normalize_text(text).split("\n"):
-        for line in wrap_line(raw, width):
-            write(line + "\n")
+        write(raw + "\n")
 
 
 def print_text_part(text, style, fallback_columns=None):
@@ -299,6 +301,10 @@ def print_card(card):
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    try:
+        wlan.config(pm=0xa11140)
+    except Exception:
+        pass
     if not wlan.isconnected():
         print("Connecting to Wi-Fi:", config.WIFI_SSID)
         wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
@@ -357,25 +363,38 @@ def network_report(wlan):
     return "\n".join(lines)
 
 
+def fast_button_sample_ms():
+    return int(getattr(config, "BUTTON_FAST_SAMPLE_MS", min(getattr(config, "BUTTON_SAMPLE_MS", 25), 5)))
+
+
+def fast_button_debounce_ms():
+    return int(getattr(config, "BUTTON_FAST_DEBOUNCE_MS", min(getattr(config, "BUTTON_DEBOUNCE_MS", 120), 25)))
+
+
 def wait_for_button_release():
     while button.value() == 0:
-        time.sleep_ms(config.BUTTON_SAMPLE_MS)
-    time.sleep_ms(config.BUTTON_DEBOUNCE_MS)
+        time.sleep_ms(fast_button_sample_ms())
 
 
 def wait_for_press():
     while True:
         if button.value() == 0:
-            time.sleep_ms(config.BUTTON_DEBOUNCE_MS)
+            time.sleep_ms(fast_button_debounce_ms())
             if button.value() == 0:
                 wait_for_button_release()
                 return
-        time.sleep_ms(config.BUTTON_SAMPLE_MS)
+        time.sleep_ms(fast_button_sample_ms())
 
 
 def button_pressed():
+    global button_event
+    if button_event:
+        button_event = False
+        if button.value() == 0:
+            wait_for_button_release()
+        return True
     if button.value() == 0:
-        time.sleep_ms(config.BUTTON_DEBOUNCE_MS)
+        time.sleep_ms(fast_button_debounce_ms())
         if button.value() == 0:
             wait_for_button_release()
             return True
@@ -390,11 +409,23 @@ def print_status_card(message):
     })
 
 
+def print_unit_message(message):
+    print_card({
+        "title": "",
+        "body": message,
+        "footer": "",
+    })
+
+
 def post_json(path, payload):
     url = config.APP_BASE_URL.rstrip("/") + path
     headers = {"Content-Type": "application/json"}
     response = None
     try:
+        try:
+            socket.setdefaulttimeout(int(getattr(config, "HTTP_TIMEOUT_SECONDS", 4)))
+        except Exception:
+            pass
         print("POST:", url)
         response = urequests.post(url, data=json.dumps(payload), headers=headers)
         status_code = getattr(response, "status_code", 0)
@@ -451,7 +482,7 @@ def post_control_status(status="controls", message="Live controls"):
 
 def wait_for_press_with_live_controls(wlan):
     live_enabled = bool(getattr(config, "LIVE_CONTROL_STATUS_ENABLED", True))
-    interval = int(getattr(config, "CONTROL_STATUS_INTERVAL_MS", 500))
+    interval = max(int(getattr(config, "CONTROL_STATUS_INTERVAL_MS", 500)), int(getattr(config, "CONTROL_STATUS_MIN_INTERVAL_MS", 1500)))
     next_status_at = time.ticks_ms()
     while True:
         if button_pressed():
@@ -475,7 +506,7 @@ def wait_for_press_with_live_controls(wlan):
             wlan = connect_wifi()
             next_status_at = time.ticks_ms()
 
-        time.sleep_ms(config.BUTTON_SAMPLE_MS)
+        time.sleep_ms(fast_button_sample_ms())
 
 
 def main():
@@ -483,26 +514,16 @@ def main():
     printer_init()
     wlan = connect_wifi()
     if config.PRINT_STARTUP_CARD:
-        status = "Online. Press START/NEXT." if wlan.isconnected() else "No Wi-Fi. Check config.py."
-        status += "\nReset cause: " + str(reset_cause())
-        status += "\nBoot ms: " + str(boot_ms)
+        status = "Connection failed."
         if wlan.isconnected():
-            status += "\n" + network_report(wlan)
             try:
                 result = post_control_status("startup", "Startup check")
                 data = result.get("data")
                 if result.get("ok") and isinstance(data, dict) and data.get("ok"):
-                    state = data.get("state") or {}
-                    status += "\nApp check: OK"
-                    status += "\nProgress: " + str(state.get("cursor")) + "/" + str(state.get("total_steps"))
-                else:
-                    status += "\nApp check: FAILED"
-                    status += "\nHTTP: " + str(result.get("status_code"))
-                    status += "\nDetail: " + short_detail(data)
+                    status = "Unit ready."
             except Exception as exc:
-                status += "\nApp check error: " + str(exc)
-        status += "\n" + control_report()
-        print_status_card(status)
+                print("Startup check error:", exc)
+        print_unit_message(status)
 
     while True:
         print("Waiting for START/NEXT...")
@@ -547,7 +568,7 @@ def main():
         finally:
             led(True)
             gc.collect()
-            time.sleep_ms(config.AFTER_REQUEST_PAUSE_MS)
+            time.sleep_ms(int(getattr(config, "AFTER_REQUEST_FAST_PAUSE_MS", min(getattr(config, "AFTER_REQUEST_PAUSE_MS", 500), 50))))
 
 
 main()
