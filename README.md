@@ -116,8 +116,8 @@ Useful keys:
 - `default_player_count` - initial player count before hardware or browser input.
 - `default_settings` - initial `AGE`, `QUEERNESS`, and `DIVERSITY`.
 - `print_profile` - 58mm thermal paper profile and print-preview rules.
-- `print_text_styles` - title/body/footer font sizing and alignment.
-- `print_content` - shared generated-card labels, default titles, vote text, and footer templates.
+- `print_text_styles` - title and body font sizing and alignment.
+- `print_content` - shared generated-card labels, vote text, persona spacing, and reusable print settings.
 - `raster_policy` - text stays native printer text, QR stays native printer QR, only image content is raster.
 - `static_personas` - Jim and Julia cards.
 - `persona_name_pool`, `persona_traits`, `persona_gender_pool`, `persona_sexuality_pool` - fallback persona generation data.
@@ -184,13 +184,17 @@ The app is designed around 58mm thermal paper.
 - Text cards are native printer text.
 - QR codes use the printer's native QR command.
 - Only persona images are raster payloads.
-- The ESP32 downloads each complete persona raster to flash, verifies its exact size, and only then sends it to the printer. This applies to static and AI-generated personas.
+- The ESP32 downloads each complete persona raster to `persona_raster.bin.tmp`, verifies its exact size, renames it to `persona_raster.bin`, verifies it again, and only then sends it to the printer. Partial downloads are retried up to three times and are never sent to the printer. This applies to static and AI-generated personas.
 - Persona cards print the name and age as the title (for example, `Jim, 42`), preserve the image and hashtags, omit sexuality/gender metadata, and center the `DESIRES` heading when a desire section exists.
-- Printed cards do not use footers. Persona cards use compact spacing between the name/age title and image.
-- Persona title-to-image and image-to-hashtag spacing use configurable fine paper feeds under `print_content`, avoiding full blank lines.
+- Printed cards do not use footers.
+- Persona spacing uses configurable fine paper feeds rather than full blank lines: `persona_title_image_gap_dots` controls the title-to-image gap and `persona_image_text_gap_dots` controls the image-to-hashtag gap.
 - The browser preview mimics narrow thermal paper using the configured print profile.
-- Title/body/footer font sizes are controlled by `game_config.json` for the app preview and by ESP32 `config.py` for physical output.
+- Title/body font sizes are controlled by `game_config.json` for the app preview and by ESP32 `config.py` for physical output.
 - Text is wrapped at word boundaries before printing. The firmware automatically scales line capacity with horizontal font size: 32 columns at 1x, 16 at 2x, 10 at 3x, 8 at 4x, and so on. Only a single word longer than a full line is split.
+
+## Firmware Update Rule
+
+`main.py` and `config.py` are local ESP32 deployment files. Current edits to these two files are intentionally not pushed to GitHub. After a firmware change, copy the files directly from the local `V2` folder to the ESP32. Hosted app files and dependencies are pushed to GitHub `main` so Render can deploy them.
 
 ## Story Portal
 
@@ -270,7 +274,7 @@ Main endpoints:
 - `POST /api/device/next` - ESP32 advances the game and receives the next printable card.
 - `POST /api/device/status` - ESP32 health/control check-in. It can also deliver a ready notice card.
 - `POST /api/device/sanity` - startup challenge-response check for Wi-Fi, app, authentication, protocol, and physical controls.
-- `GET /api/device/raster/{game_id}/{presses}` - authenticated binary persona-image stream for the ESP32.
+- `GET /api/device/raster/{game_id}/{presses}` - authenticated binary persona-image download used by the ESP32 flash-cache workflow.
 - `GET /portal/{game_id}/{step}` - story portal form.
 - `POST /portal/{game_id}/{step}` - story portal submission.
 
