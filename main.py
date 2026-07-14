@@ -1,6 +1,7 @@
 import gc
 import time
 import json
+import os
 import network
 import socket
 import ubinascii
@@ -163,6 +164,12 @@ def feed(lines=None):
     write(b"\n" * int(lines if lines is not None else config.FEED_LINES_AFTER_CARD), 60)
 
 
+def feed_dots(dots):
+    dots = clamp(int(dots or 0), 0, 255)
+    if dots:
+        write(b"\x1b\x4a" + bytes((dots,)), 20)
+
+
 def center():
     write(b"\x1b\x61\x01")
 
@@ -219,18 +226,42 @@ def normalize_text(text):
 
 
 def print_wrapped(text, width=None):
+    width = max(1, int(width or config.PRINTER_TEXT_COLUMNS))
     for raw in normalize_text(text).split("\n"):
-        write(raw + "\n")
+        words = raw.split()
+        if not words:
+            write("\n")
+            continue
+        line = ""
+        for word in words:
+            while len(word) > width:
+                if line:
+                    write(line + "\n")
+                    line = ""
+                write(word[:width] + "\n")
+                word = word[width:]
+            candidate = word if not line else line + " " + word
+            if len(candidate) <= width:
+                line = candidate
+            else:
+                write(line + "\n")
+                line = word
+        if line:
+            write(line + "\n")
 
 
 def print_text_part(text, style, fallback_columns=None):
     if not text:
         return
     align = style.get("align", "left")
+    width_multiplier = max(1, int(style.get("width", 1)))
+    physical_columns = max(1, int(config.PRINTER_TEXT_COLUMNS) // width_multiplier)
+    configured_columns = int(style.get("columns", fallback_columns or physical_columns))
+    wrap_columns = min(configured_columns, physical_columns)
     center() if align == "center" else left()
     bold(bool(style.get("bold", False)))
-    size(int(style.get("width", 1)), int(style.get("height", 1)))
-    print_wrapped(text, int(style.get("columns", fallback_columns or config.PRINTER_TEXT_COLUMNS)))
+    size(width_multiplier, int(style.get("height", 1)))
+    print_wrapped(text, wrap_columns)
     size(1, 1)
     bold(False)
     left()
@@ -264,23 +295,148 @@ def print_raster_image(image):
     write("\n")
 
 
+def remove_file_if_present(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def download_raster_file_once(image):
+    if not image:
+        return None
+    width = int(image.get("width", 0))
+    height = int(image.get("height", 0))
+    url = image.get("url", "")
+    if width <= 0 or height <= 0 or not url:
+        return None
+    expected_bytes = ((width + 7) // 8) * height
+    final_path = str(getattr(config, "RASTER_CACHE_PATH", "persona_raster.bin"))
+    temp_path = final_path + ".tmp"
+    response = None
+    received = 0
+    remove_file_if_present(temp_path)
+    try:
+        gc.collect()
+        response = urequests.get(url, headers={"X-Device-Secret": config.DEVICE_SECRET})
+        status_code = int(getattr(response, "status_code", 0))
+        if status_code < 200 or status_code >= 300:
+            raise RuntimeError("Raster HTTP " + str(status_code))
+        chunk_size = int(getattr(config, "PRINTER_RASTER_CHUNK_BYTES", 512))
+        with open(temp_path, "wb") as raster_file:
+            while received < expected_bytes:
+                chunk = response.raw.read(min(chunk_size, expected_bytes - received))
+                if not chunk:
+                    break
+                raster_file.write(chunk)
+                received += len(chunk)
+    finally:
+        if response:
+            response.close()
+    if received != expected_bytes:
+        remove_file_if_present(temp_path)
+        raise RuntimeError(
+            "Incomplete raster: " + str(received) + "/" + str(expected_bytes)
+        )
+    remove_file_if_present(final_path)
+    os.rename(temp_path, final_path)
+    print("Raster downloaded:", received, "bytes")
+    return {
+        "path": final_path,
+        "width": width,
+        "height": height,
+        "bytes": expected_bytes,
+    }
+
+
+def download_raster_file(image):
+    retries = max(1, int(getattr(config, "RASTER_DOWNLOAD_RETRY_COUNT", 3)))
+    pause_ms = int(getattr(config, "RASTER_DOWNLOAD_RETRY_PAUSE_MS", 500))
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            print("Downloading raster: attempt", attempt)
+            return download_raster_file_once(image)
+        except Exception as exc:
+            last_error = exc
+            print("Raster download failed: attempt", attempt, str(exc))
+            if attempt < retries:
+                time.sleep_ms(pause_ms)
+    raise RuntimeError("Raster download failed: " + str(last_error))
+
+
+def print_raster_file(raster):
+    if not raster:
+        return
+    path = raster.get("path", "")
+    width = int(raster.get("width", 0))
+    height = int(raster.get("height", 0))
+    expected_bytes = int(raster.get("bytes", 0))
+    actual_bytes = int(os.stat(path)[6])
+    if actual_bytes != expected_bytes:
+        raise RuntimeError(
+            "Raster file size changed: " + str(actual_bytes) + "/" + str(expected_bytes)
+        )
+    width_bytes = (width + 7) // 8
+    center()
+    header = b"\x1dv0\x00" + bytes((
+        width_bytes & 0xFF,
+        (width_bytes >> 8) & 0xFF,
+        height & 0xFF,
+        (height >> 8) & 0xFF,
+    ))
+    printer.write(header)
+    time.sleep_ms(20)
+    chunk_size = int(getattr(config, "PRINTER_RASTER_CHUNK_BYTES", 512))
+    delay_ms = int(getattr(config, "PRINTER_RASTER_CHUNK_DELAY_MS", 12))
+    sent = 0
+    with open(path, "rb") as raster_file:
+        while sent < expected_bytes:
+            chunk = raster_file.read(min(chunk_size, expected_bytes - sent))
+            if not chunk:
+                break
+            printer.write(chunk)
+            sent += len(chunk)
+            time.sleep_ms(delay_ms)
+    if sent != expected_bytes:
+        raise RuntimeError("Incomplete raster print: " + str(sent) + "/" + str(expected_bytes))
+    left()
+    write("\n")
+
+
 def print_card(card):
     printer_init()
     styles = card.get("styles") or {}
     title_style = styles.get("title", {})
     body_style = styles.get("body", styles.get("text", {}))
     footer_style = styles.get("footer", {})
+    has_image = bool(card.get("image_raster") or card.get("image_raster_stream"))
 
     title = card.get("title")
     if title:
         print_text_part(title, title_style, config.TITLE_TEXT_COLUMNS)
-        write("\n")
+        if not card.get("compact_title_spacing"):
+            write("\n")
+        if has_image:
+            feed_dots(card.get("title_image_gap_dots", 0))
 
     print_raster_image(card.get("image_raster"))
+    raster_stream = card.get("image_raster_stream")
+    if raster_stream:
+        print_raster_file(download_raster_file(raster_stream))
+    if has_image:
+        feed_dots(card.get("image_text_gap_dots", 0))
 
     body = card.get("body") or card.get("text")
     if body:
         print_text_part(body, body_style, config.PRINTER_TEXT_COLUMNS)
+
+    for part in card.get("text_parts") or []:
+        if part.get("blank_before"):
+            write("\n")
+        part_style = dict(body_style)
+        part_style.update(part.get("style") or {})
+        print_text_part(part.get("text", ""), part_style, config.PRINTER_TEXT_COLUMNS)
 
     qr_url = card.get("qr_url")
     if qr_url and config.PRINT_NATIVE_QR:
@@ -456,8 +612,8 @@ def post_json(path, payload):
         status_code = getattr(response, "status_code", 0)
         try:
             data = response.json()
-        except Exception:
-            data = {"detail": getattr(response, "text", "")}
+        except Exception as exc:
+            data = {"detail": "Invalid JSON response: " + str(exc)}
         return {
             "ok": 200 <= int(status_code) < 300,
             "status_code": status_code,
@@ -516,6 +672,55 @@ def post_control_status(status="controls", message="Live controls", lite=False):
     return post_json(path, control_payload(status, message, lite))
 
 
+def sanity_challenge():
+    return config.DEVICE_ID + "-" + str(time.ticks_ms())
+
+
+def check_device_sanity():
+    protocol_version = int(getattr(config, "PROTOCOL_VERSION", 1))
+    challenge = sanity_challenge()
+    path = getattr(config, "SANITY_ENDPOINT", "/api/device/sanity")
+    result = post_json(path, {
+        "device_id": config.DEVICE_ID,
+        "secret": config.DEVICE_SECRET,
+        "protocol_version": protocol_version,
+        "challenge": challenge,
+        "settings": read_control_settings(),
+        "player_count": read_player_count(),
+    })
+    data = result.get("data")
+    accepted = (
+        result.get("ok")
+        and isinstance(data, dict)
+        and data.get("ok") is True
+        and data.get("protocol_version") == protocol_version
+        and data.get("challenge") == challenge
+    )
+    return accepted, result
+
+
+def run_startup_sanity_check():
+    retries = max(1, int(getattr(config, "SANITY_RETRY_COUNT", 3)))
+    pause_ms = int(getattr(config, "SANITY_RETRY_PAUSE_MS", 750))
+    for attempt in range(1, retries + 1):
+        try:
+            accepted, result = check_device_sanity()
+            if accepted:
+                print("Startup sanity check successful on attempt", attempt)
+                return True
+            print(
+                "Startup sanity check failed:",
+                "attempt", attempt,
+                "HTTP", result.get("status_code"),
+                short_detail(result.get("data")),
+            )
+        except Exception as exc:
+            print("Startup sanity check error: attempt", attempt, str(exc))
+        if attempt < retries:
+            time.sleep_ms(pause_ms)
+    return False
+
+
 def wait_for_press_with_live_controls(wlan):
     live_enabled = bool(getattr(config, "LIVE_CONTROL_STATUS_ENABLED", True))
     interval = max(int(getattr(config, "CONTROL_STATUS_INTERVAL_MS", 500)), int(getattr(config, "CONTROL_STATUS_MIN_INTERVAL_MS", 1500)))
@@ -550,22 +755,14 @@ def main():
     printer_init()
     wlan = connect_wifi()
     if config.PRINT_STARTUP_CARD:
-        status = "Wi-Fi failed."
+        successful = False
         if wlan.isconnected():
-            status = "App failed."
-            try:
-                result = post_control_status("startup", "Startup check", True)
-                data = result.get("data")
-                if app_status_accepted(result):
-                    status = "Unit ready."
-                else:
-                    print("Startup app check failed:", result.get("status_code"), short_detail(data))
-            except Exception as exc:
-                print("Startup check error:", exc)
+            successful = run_startup_sanity_check()
+            if not successful:
                 print(network_report(wlan))
         else:
             print("Startup Wi-Fi failed")
-        print_unit_message(status)
+        print_unit_message("SUCCESSFUL" if successful else "FAILED")
 
     while True:
         print("Waiting for START/NEXT...")

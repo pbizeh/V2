@@ -14,9 +14,12 @@ from threading import Thread
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from prompts_config import FALLBACK_IMAGE_PROMPT, PERSONA_CARD_PROMPT
+from traits_config import TRAITS
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -44,6 +47,15 @@ class DeviceStatus(BaseModel):
     settings: dict[str, int] | None = None
     player_count: int | None = None
     lite: bool = False
+
+
+class DeviceSanity(BaseModel):
+    device_id: str = "printer-001"
+    secret: str | None = None
+    protocol_version: int
+    challenge: str
+    settings: dict[str, int] | None = None
+    player_count: int | None = None
 
 
 class NextRequest(BaseModel):
@@ -304,6 +316,23 @@ def parse_json_object(text: str | None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def parse_tagged_persona_response(text: str | None) -> dict[str, Any]:
+    if not text:
+        return {}
+    result: dict[str, Any] = {}
+    keys = {
+        "NAME": "name",
+        "HASHTAGS": "hashtags",
+        "IMAGE_PROMPT": "image_prompt",
+    }
+    for line in text.splitlines():
+        label, separator, value = line.partition(":")
+        key = keys.get(label.strip().upper())
+        if separator and key:
+            result[key] = value.strip()
+    return result
+
+
 def normalize_hashtags(value: Any, cfg: dict[str, Any]) -> list[str]:
     if isinstance(value, list):
         words = [str(item) for item in value]
@@ -347,30 +376,88 @@ def avoided_persona_names(state: dict[str, Any], cfg: dict[str, Any], extra: lis
     return result
 
 
-def fallback_generated_persona(index: int, cfg: dict[str, Any], avoid_names: list[str] | None = None) -> dict[str, Any]:
+def interpolate_weight_maps(start: dict[str, Any], end: dict[str, Any], position: float) -> dict[str, float]:
+    keys = list(dict.fromkeys([*start.keys(), *end.keys()]))
+    return {
+        key: max(0.0, float(start.get(key, 0)) + (float(end.get(key, 0)) - float(start.get(key, 0))) * position)
+        for key in keys
+    }
+
+
+def weighted_choice(weights: dict[str, float]) -> str:
+    choices = [(key, max(0.0, float(weight))) for key, weight in weights.items()]
+    total = sum(weight for _, weight in choices)
+    if total <= 0:
+        return choices[0][0] if choices else ""
+    target = random.random() * total
+    running = 0.0
+    for value, weight in choices:
+        running += weight
+        if target <= running:
+            return value
+    return choices[-1][0]
+
+
+def sample_persona_facts(settings: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    distributions = cfg.get("persona_generation_distributions", {})
+    knob_min = float(distributions.get("knob_min", 0))
+    knob_max = float(distributions.get("knob_max", 100))
+
+    def position(control: str) -> float:
+        value = float(clamp_int(settings.get(control), int(knob_min), int(knob_max), 50))
+        return 0.0 if knob_max <= knob_min else (value - knob_min) / (knob_max - knob_min)
+
+    age_cfg = distributions.get("age", {})
+    age_position = position("age")
+    median = float(age_cfg.get("median_at_knob_min", 20)) + (
+        float(age_cfg.get("median_at_knob_max", 65)) - float(age_cfg.get("median_at_knob_min", 20))
+    ) * age_position
+    age = round(random.gauss(median, max(0.1, float(age_cfg.get("standard_deviation", 10.0)))))
+    age = max(int(age_cfg.get("minimum", 20)), min(int(age_cfg.get("maximum", 90)), age))
+
+    facts: dict[str, Any] = {"age": age}
+    for key in ("gender", "sexuality", "race", "political_leaning"):
+        distribution = distributions.get(key, {})
+        control = str(distribution.get("control", "diversity"))
+        weights = interpolate_weight_maps(
+            distribution.get("at_knob_min", {}),
+            distribution.get("at_knob_max", {}),
+            position(control),
+        )
+        facts[key] = weighted_choice(weights)
+    facts["trait"] = random.SystemRandom().choice(TRAITS) if TRAITS else "Curious"
+    return facts
+
+
+def fallback_generated_persona(
+    index: int,
+    cfg: dict[str, Any],
+    facts: dict[str, Any],
+    prompt: str,
+    avoid_names: list[str] | None = None,
+) -> dict[str, Any]:
     names = cfg.get("persona_name_pool", ["Alex", "Sam", "Riley", "Morgan"])
-    traits = cfg.get("persona_traits", ["curious", "tender", "bold"])
-    genders = cfg.get("persona_gender_pool", ["woman", "man", "non-binary"])
-    sexualities = cfg.get("persona_sexuality_pool", ["bi", "queer", "pan"])
     avoided = {name.casefold() for name in (avoid_names or [])}
     available = [name for name in names if str(name).casefold() not in avoided] or names
     name = str(available[(index - 1) % len(available)])
-    trait = random.choice(traits)
-    gender = random.choice(genders)
-    sexuality = random.choice(sexualities)
-    age = random.randint(28, 52)
+    trait = str(facts.get("trait", "Curious"))
     return {
         "name": name,
-        "age": age,
-        "sexuality": sexuality,
-        "gender": gender,
+        "age": facts.get("age"),
+        "gender": facts.get("gender"),
+        "sexuality": facts.get("sexuality"),
+        "race": facts.get("race"),
+        "political_leaning": facts.get("political_leaning"),
+        "image_prompt": FALLBACK_IMAGE_PROMPT,
+        "traits": [trait],
+        "hashtag_and_name_prompts": {"hashtag": prompt, "name": prompt},
         "hashtags": normalize_hashtags([trait, "open_heart", "soft_risk"], cfg),
-        "desire": random.choice(cfg.get("desire_templates", ["Secret desire: be invited into a risky plan."])),
-        "image_prompt": render_template(str(cfg.get("fallback_persona_image_prompt", "")), {}, cfg, {
+        "_desire": random.choice(cfg.get("desire_templates", ["Secret desire: be invited into a risky plan."])),
+        "_fallback_image_prompt": render_template(str(cfg.get("fallback_persona_image_prompt", "")), {}, cfg, {
             "name": name,
-            "age": age,
-            "sexuality": sexuality,
-            "gender": gender,
+            "age": facts.get("age"),
+            "sexuality": facts.get("sexuality"),
+            "gender": facts.get("gender"),
             "hashtags": " ".join([trait]),
         }),
     }
@@ -448,29 +535,25 @@ def image_to_card_payload(image, cfg: dict[str, Any]) -> dict[str, Any] | None:
 
 def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     styles = cfg.get("print_text_styles", {})
-    name = clean_text(str(data.get("name") or "PERSONA")).upper()
+    content = cfg.get("print_content", {})
+    name = clean_text(str(data.get("name") or content.get("persona_default_name", "Persona")))
+    age = clean_text(str(data.get("age", ""))).strip()
+    title = name + (", " + age if age else "")
     hashtags = normalize_hashtags(data.get("hashtags"), cfg)
-    metadata = " | ".join(
-        clean_text(str(data.get(key, "")))
-        for key in ("age", "sexuality", "gender")
-        if str(data.get(key, "")).strip()
-    )
-    fold_line = str(cfg.get("persona_fold_line", "--- fold here ---"))
-    desire_title = str(cfg.get("persona_desire_title", "DESIRE"))
-    desire = clean_text(str(data.get("desire") or random.choice(cfg.get("desire_templates", ["Secret desire: be chosen."]))))
-    body = "\n\n".join(part for part in [
-        metadata,
-        " ".join(hashtags),
-        fold_line,
-        desire_title,
-        desire,
-    ] if part)
+    persona = {key: value for key, value in data.items() if not key.startswith("_")}
     card = {
-        "title": name,
-        "body": body,
+        "title": title,
+        "body": "",
+        "compact_title_spacing": True,
+        "title_image_gap_dots": int(content.get("persona_title_image_gap_dots", 6)),
+        "image_text_gap_dots": int(content.get("persona_image_text_gap_dots", 8)),
+        "text_parts": [
+            {"text": " ".join(hashtags)},
+        ],
         "footer": "",
         "styles": styles,
         "show_divider": False,
+        "persona": persona,
     }
     image_payload = image_to_card_payload(openai_image(str(data.get("image_prompt", "")), cfg), cfg)
     if image_payload:
@@ -480,7 +563,8 @@ def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[st
 
 def persona_batch_key(state: dict[str, Any], step: dict[str, Any] | None = None) -> str:
     profile = str((step or {}).get("persona_profile", "average"))
-    return f"{state.get('game_id')}:{state.get('player_count', 4)}:{profile}"
+    batch_id = str((step or {}).get("persona_batch_id", profile))
+    return f"{state.get('game_id')}:{state.get('player_count', 4)}:{batch_id}:{profile}"
 
 
 def generate_one_persona(
@@ -490,29 +574,36 @@ def generate_one_persona(
     avoid_names: list[str],
     step: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    count = max(1, min(12, int(state.get("player_count", 4))))
-    profile = str((step or {}).get("persona_profile", "average"))
-    controls = {"age": 50, "queerness": 50, "diversity": 50} if profile == "average" else state.get("settings", {})
-    prompt_state = {**state, "settings": controls}
-    prompt = render_template(
-        prompt_text("persona_single_generation", cfg),
-        prompt_state,
-        cfg,
-        {
-            "index": index,
-            "count": count,
-            "avoid_names": ", ".join(avoid_names) or "none",
-            "persona_profile": profile,
-        },
+    facts = sample_persona_facts(state.get("settings", {}), cfg)
+    prompt = PERSONA_CARD_PROMPT.format(
+        age=facts["age"],
+        gender=facts["gender"],
+        sexuality=facts["sexuality"],
+        race=facts["race"],
+        political_leaning=facts["political_leaning"],
+        trait=facts["trait"],
+        avoid_list=", ".join(avoid_names) or "none",
     )
-    data = parse_json_object(openai_chat(prompt, cfg) if prompt else None)
+    ai_values = parse_tagged_persona_response(openai_chat(prompt, cfg))
+    data = {
+        "name": clean_name(ai_values.get("name")),
+        "age": facts["age"],
+        "gender": facts["gender"],
+        "sexuality": facts["sexuality"],
+        "race": facts["race"],
+        "political_leaning": facts["political_leaning"],
+        "image_prompt": clean_text(str(ai_values.get("image_prompt", ""))).strip(),
+        "traits": [facts["trait"]],
+        "hashtag_and_name_prompts": {"hashtag": prompt, "name": prompt},
+        "hashtags": normalize_hashtags(ai_values.get("hashtags"), cfg),
+    }
     name = clean_name(data.get("name"))
     if not name or name.casefold() in {item.casefold() for item in avoid_names}:
-        data = fallback_generated_persona(index, cfg, avoid_names)
+        data = fallback_generated_persona(index, cfg, facts, prompt, avoid_names)
     else:
         data["name"] = name
     if not str(data.get("image_prompt", "")).strip():
-        data["image_prompt"] = render_template(str(cfg.get("fallback_persona_image_prompt", "")), prompt_state, cfg, data)
+        data["image_prompt"] = FALLBACK_IMAGE_PROMPT
     return persona_card_from_data(data, cfg)
 
 
@@ -523,10 +614,10 @@ def generate_persona_batch(state: dict[str, Any], cfg: dict[str, Any], step: dic
     for index in range(1, count + 1):
         card = generate_one_persona(state, cfg, index, avoid_names, step)
         cards.append(card)
-        name = clean_name(card.get("title", "")).title()
+        name = clean_name((card.get("persona") or {}).get("name", ""))
         if name:
             avoid_names.append(name)
-    names = [clean_name(card.get("title", "")).title() for card in cards if card.get("title")]
+    names = [clean_name((card.get("persona") or {}).get("name", "")) for card in cards if (card.get("persona") or {}).get("name")]
     if names:
         state["persona_names"] = (state.get("persona_names", []) + names)[-30:]
     return cards
@@ -627,20 +718,23 @@ def make_persona_cards(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     return "\n\n".join(random_persona(state, cfg, i + 1) for i in range(count))
 
 
-def make_vote_papers(state: dict[str, Any]) -> str:
+def make_vote_papers(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     count = int(state.get("player_count", 4))
-    labels = ["C"] + [str(i) for i in range(1, count)]
-    return "Detach one vote token and pass it face down.\n\n" + "\n".join(f"[ {label} ]" for label in labels)
+    content = cfg.get("print_content", {})
+    labels = [str(content.get("captain_ballot_label", "C"))] + [str(i) for i in range(1, count)]
+    instructions = str(content.get("vote_instructions", "Detach one vote token and pass it face down."))
+    return instructions + "\n\n" + "\n".join(f"[ {label} ]" for label in labels)
 
 
-def ballot_line(state: dict[str, Any]) -> str:
+def ballot_line(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     count = max(1, int(state.get("player_count", 4)))
-    return "   ".join(["C"] + [str(i) for i in range(1, count)])
+    captain_label = str(cfg.get("print_content", {}).get("captain_ballot_label", "C"))
+    return "   ".join([captain_label] + [str(i) for i in range(1, count)])
 
 
 def ballot_card(state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     return {
-        "title": ballot_line(state),
+        "title": ballot_line(state, cfg),
         "body": "",
         "footer": "",
         "styles": cfg.get("print_text_styles", {}),
@@ -686,6 +780,13 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
             lines.extend(wrap_text(paragraph, width))
         else:
             lines.append("")
+    for part in card.get("text_parts") or []:
+        if part.get("blank_before"):
+            lines.append("")
+        part_lines = wrap_text(str(part.get("text", "")), width)
+        if (part.get("style") or {}).get("align") == "center":
+            part_lines = [center_text(line, width) for line in part_lines]
+        lines.extend(part_lines)
     if card.get("qr_url"):
         lines.append("")
         lines.append(center_text("QR", width))
@@ -700,6 +801,7 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
 
 
 def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any], cursor: int) -> dict[str, Any]:
+    card["footer"] = ""
     print_profile = cfg.get("print_profile") or {}
     preview = render_print_preview(card, state, cfg)
     return {
@@ -716,6 +818,39 @@ def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any
         "step": step,
         "settings": state.get("settings", {}),
     }
+
+
+def device_safe_response(result: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    response = {
+        key: value
+        for key, value in result.items()
+        if key not in {"print", "state"}
+    }
+    state = result.get("state") or {}
+    response["state"] = {
+        key: state.get(key)
+        for key in ("game_id", "cursor", "total_steps", "presses")
+    }
+    card = response.get("card")
+    if not isinstance(card, dict):
+        return response
+
+    device_card = dict(card)
+    raster = device_card.pop("image_raster", None)
+    device_card.pop("image_data_url", None)
+    device_card.pop("image_url", None)
+    if isinstance(raster, dict) and raster.get("bytes_hex"):
+        game_id = state.get("game_id")
+        presses = state.get("presses")
+        public_url = str(cfg.get("public_app_url", "")).rstrip("/")
+        if game_id is not None and presses is not None and public_url:
+            device_card["image_raster_stream"] = {
+                "width": int(raster.get("width", 0)),
+                "height": int(raster.get("height", 0)),
+                "url": f"{public_url}/api/device/raster/{game_id}/{presses}",
+            }
+    response["card"] = device_card
+    return response
 
 
 def unique_portal_url(state: dict[str, Any], cfg: dict[str, Any]) -> str:
@@ -748,11 +883,13 @@ def story_submitted(state: dict[str, Any], submission_id: str) -> bool:
 
 def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     value = apply_placeholders(str(step.get("text", "")), state, cfg)
-    phase = str(step.get("phase") or "Game")
-    card_title = str(step.get("title") or step.get("column_name") or "Card")
+    content = cfg.get("print_content", {})
+    phase = str(step.get("phase") or content.get("default_phase", "Game"))
+    card_title = str(step.get("title") or step.get("column_name") or content.get("default_card_title", "Card"))
     kind = str(step.get("kind") or "text").lower()
     title = f"{phase}: {card_title}"
-    footer = f"Step {state.get('cursor', 0) + 1} | START/NEXT"
+    footer_template = str(content.get("step_footer_template", "Step {step_number} | START/NEXT"))
+    footer = render_template(footer_template, state, cfg, {"step_number": state.get("cursor", 0) + 1})
     lower = value.lower()
     styles = cfg.get("print_text_styles", {})
 
@@ -760,15 +897,14 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
         persona_id = str(step.get("persona_id", "")).strip()
         persona = (cfg.get("static_personas") or {}).get(persona_id, {})
         hashtags = " ".join(persona.get("hashtags", []))
-        metadata = " | ".join(
-            str(persona.get(key, "")).strip()
-            for key in ("age", "sexuality", "gender")
-            if str(persona.get(key, "")).strip()
-        )
-        body_lines = [line for line in [metadata, hashtags] if line]
+        name = clean_text(str(persona.get("name", card_title)))
+        age = clean_text(str(persona.get("age", ""))).strip()
         return {
-            "title": str(persona.get("name", card_title)).upper(),
-            "body": "\n\n".join(body_lines),
+            "title": name + (", " + age if age else ""),
+            "body": hashtags,
+            "compact_title_spacing": True,
+            "title_image_gap_dots": int(content.get("persona_title_image_gap_dots", 6)),
+            "image_text_gap_dots": int(content.get("persona_image_text_gap_dots", 8)),
             "footer": str(persona.get("footer", "")),
             "image_url": str(persona.get("image_url", "")),
             "image_raster": load_raster_payload(persona.get("raster_path")),
@@ -778,11 +914,11 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
 
     if kind in {"persona", "vote"} or "n=number of players" in lower or "n vote papers" in lower:
         if kind == "vote" or "vote" in lower:
-            body = make_vote_papers(state)
-            title = f"{phase}: Vote Papers"
+            body = make_vote_papers(state, cfg)
+            title = f"{phase}: {content.get('vote_papers_title', 'Vote Papers')}"
         else:
             body = make_persona_cards(state, cfg)
-            title = f"{phase}: Persona Cards"
+            title = f"{phase}: {content.get('persona_cards_title', 'Persona Cards')}"
         return {"title": title, "body": body, "footer": footer, "styles": styles}
 
     if kind == "story_submission":
@@ -800,7 +936,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     if kind == "qr" or "qr code" in lower or "story portal" in lower:
         qr_url = unique_portal_url(state, cfg)
         return {
-            "title": f"{phase}: Story Portal",
+            "title": f"{phase}: {content.get('story_portal_title', 'Story Portal')}",
             "body": cfg.get("qr_card_text", "Scan this to submit the winning story."),
             "footer": footer,
             "qr_url": qr_url,
@@ -837,12 +973,21 @@ def wait_for_persona_queue(state: dict[str, Any], cfg: dict[str, Any], step: dic
 
 
 def persona_batch_step_for_prepare(cfg: dict[str, Any], current_step: dict[str, Any]) -> dict[str, Any]:
+    target_batch_id = str(current_step.get("prepare_persona_batch_id", "")).strip()
     for step in load_scenario_steps(cfg):
         if str(step.get("kind", "")).lower() == "generated_persona_batch":
+            if target_batch_id and str(step.get("persona_batch_id", "")).strip() != target_batch_id:
+                continue
             prepared = dict(step)
             prepared["persona_profile"] = current_step.get("persona_profile", prepared.get("persona_profile", "average"))
             return prepared
-    return {"kind": "generated_persona_batch", "title": "Persona Cards", "persona_profile": current_step.get("persona_profile", "average")}
+    title = str(cfg.get("print_content", {}).get("persona_cards_title", "Persona Cards"))
+    return {
+        "kind": "generated_persona_batch",
+        "title": title,
+        "persona_batch_id": target_batch_id or current_step.get("persona_profile", "average"),
+        "persona_profile": current_step.get("persona_profile", "average"),
+    }
 
 
 def patience_card(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -979,7 +1124,11 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
         state["story_waiting_key"] = wait_key
         return record_print_without_advancing(
             story_submission_apology_card(cfg),
-            {"phase": "System", "title": "Story Required", "kind": "submission_gate"},
+            {
+                "phase": "System",
+                "title": str(cfg.get("print_content", {}).get("story_required_system_title", "Story Required")),
+                "kind": "submission_gate",
+            },
             state,
             cfg,
             cursor,
@@ -1001,7 +1150,11 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
             state = load_state()
             return record_print_without_advancing(
                 patience_card(cfg),
-                {"phase": "System", "title": "Generating Cards", "kind": "patience"},
+                {
+                    "phase": "System",
+                    "title": str(cfg.get("print_content", {}).get("generated_persona_system_title", "Generating Cards")),
+                    "kind": "patience",
+                },
                 state,
                 cfg,
                 cursor,
@@ -1148,7 +1301,29 @@ async def api_device_next(payload: DeviceNext) -> JSONResponse:
         "next",
         f"START/NEXT accepted; players={state.get('player_count')}",
     )
-    return JSONResponse(advance(load_state(), payload.settings))
+    return JSONResponse(device_safe_response(advance(load_state(), payload.settings), cfg))
+
+
+@app.get("/api/device/raster/{game_id}/{presses}")
+async def api_device_raster(game_id: str, presses: int, request: Request) -> Response:
+    cfg = load_config()
+    validate_device_secret(request.headers.get("x-device-secret"), cfg)
+    state = load_state()
+    if state.get("game_id") != game_id or int(state.get("presses", -1)) != presses:
+        raise HTTPException(status_code=409, detail="Raster card is no longer current")
+    raster = (state.get("last_card") or {}).get("image_raster") or {}
+    data_hex = raster.get("bytes_hex")
+    if not data_hex:
+        raise HTTPException(status_code=404, detail="Current card has no raster image")
+    try:
+        binary = bytes.fromhex(str(data_hex))
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Invalid raster data") from exc
+    return Response(
+        content=binary,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/device/status")
@@ -1204,6 +1379,56 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         response["card"] = notice["card"]
         response["print"] = notice["print"]
     return response
+
+
+@app.post("/api/device/sanity")
+async def api_device_sanity(payload: DeviceSanity) -> JSONResponse:
+    cfg = load_config()
+    state = load_state()
+    expected_protocol = 1
+
+    try:
+        validate_device_secret(payload.secret, cfg)
+    except HTTPException:
+        record_device_status(
+            state, payload.device_id, "sanity_failed", "Bad device secret", accepted=False
+        )
+        return JSONResponse(
+            {"ok": False, "detail": "Bad device secret"}, status_code=403
+        )
+
+    if payload.protocol_version != expected_protocol:
+        message = (
+            f"Protocol mismatch: unit={payload.protocol_version}, "
+            f"app={expected_protocol}"
+        )
+        record_device_status(
+            state, payload.device_id, "sanity_failed", message, accepted=False
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "detail": message,
+                "protocol_version": expected_protocol,
+            },
+            status_code=409,
+        )
+
+    state = apply_hardware_controls(state, payload.settings, payload.player_count)
+    record_device_status(
+        state,
+        payload.device_id,
+        "sanity_successful",
+        "Startup sanity check passed",
+    )
+    return JSONResponse(
+        {
+            "ok": True,
+            "detail": "Device and app sanity check passed",
+            "protocol_version": expected_protocol,
+            "challenge": payload.challenge,
+        }
+    )
 
 
 @app.get("/portal/{game_id}/{step}", response_class=HTMLResponse)

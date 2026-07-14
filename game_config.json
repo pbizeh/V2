@@ -8,16 +8,16 @@
     "queerness": 50,
     "diversity": 50
   },
-  "print_preview_columns": 42,
-  "print_preview_divider": "------------------------------------------",
+  "print_preview_columns": 32,
+  "print_preview_divider": "--------------------------------",
   "print_profile": {
     "paper_width_mm": 58,
     "printable_width_mm": 48,
-    "text_columns": 42,
-    "title_columns": 21,
+    "text_columns": 32,
+    "title_columns": 16,
     "title_width_multiplier": 2,
     "title_height_multiplier": 2,
-    "divider": "------------------------------------------",
+    "divider": "--------------------------------",
     "body_font": "printer ASCII",
     "qr_mode": "native printer QR",
     "preview_note": "The main portal preview should mimic 58mm thermal paper. Text is ASCII/native printer text. QR codes use the printer QR command. Only image cards should be rasterized."
@@ -26,7 +26,7 @@
     "title": {
       "width": 2,
       "height": 2,
-      "columns": 21,
+      "columns": 16,
       "bold": true,
       "align": "center",
       "preview_scale": 1.65
@@ -34,7 +34,7 @@
     "body": {
       "width": 1,
       "height": 1,
-      "columns": 42,
+      "columns": 32,
       "bold": false,
       "align": "left",
       "preview_scale": 1
@@ -42,11 +42,27 @@
     "footer": {
       "width": 1,
       "height": 1,
-      "columns": 42,
+      "columns": 32,
       "bold": false,
       "align": "left",
       "preview_scale": 0.9
     }
+  },
+  "print_content": {
+    "default_phase": "Game",
+    "default_card_title": "Card",
+    "step_footer_template": "",
+    "vote_papers_title": "Vote Papers",
+    "persona_cards_title": "Persona Cards",
+    "story_portal_title": "Story Portal",
+    "vote_instructions": "Detach one vote token and pass it face down.",
+    "captain_ballot_label": "C",
+    "persona_default_name": "Persona",
+    "persona_default_desire": "Secret desire: be chosen.",
+    "persona_title_image_gap_dots": 6,
+    "persona_image_text_gap_dots": 8,
+    "generated_persona_system_title": "Generating Cards",
+    "story_required_system_title": "Story Required"
   },
   "raster_policy": {
     "text": "native ASCII printer text",
@@ -60,7 +76,7 @@
   "fallback_round_title": "A new turn of the voyage",
   "fallback_round_story": "Jim and Julia notice a strange invitation slipped under their cabin door.",
   "persona_fold_line": "--- fold here ---",
-  "persona_desire_title": "DESIRE",
+  "persona_desire_title": "DESIRES",
   "persona_queue_wait_seconds": 0,
   "patience_card_title": "",
   "patience_card_text": "Please be patient while cards are being generated. I'll let you know when they are here.",
@@ -81,7 +97,7 @@
       "age": 42,
       "sexuality": "bi",
       "gender": "man",
-      "hashtags": ["#restless", "#tender", "#dry_wit"],
+      "hashtags": ["#restless_soul", "#dry_wit", "#tender_hearted"],
       "footer": ""
     },
     "julia": {
@@ -91,8 +107,100 @@
       "age": 37,
       "sexuality": "bi",
       "gender": "woman",
-      "hashtags": ["#curious", "#bold", "#romantic"],
+      "hashtags": ["#feminine_energy", "#curious", "#brilliant_mind"],
       "footer": ""
+    }
+  },
+  "generated_persona_properties": {
+    "name": "",
+    "age": null,
+    "gender": "",
+    "sexuality": "",
+    "race": "",
+    "political_leaning": "",
+    "image_prompt": "",
+    "traits": [],
+    "hashtag_and_name_prompts": {
+      "hashtag": "",
+      "name": ""
+    },
+    "hashtags": []
+  },
+  "persona_generation_distributions": {
+    "knob_min": 0,
+    "knob_max": 100,
+    "age": {
+      "median_at_knob_min": 20,
+      "median_at_knob_max": 65,
+      "minimum": 20,
+      "maximum": 90,
+      "standard_deviation": 10.0
+    },
+    "gender": {
+      "control": "queerness",
+      "at_knob_min": {
+        "cis-man": 50,
+        "cis-woman": 50,
+        "trans": 0,
+        "non-binary": 0
+      },
+      "at_knob_max": {
+        "cis-man": 30,
+        "cis-woman": 30,
+        "trans": 25,
+        "non-binary": 15
+      }
+    },
+    "sexuality": {
+      "control": "queerness",
+      "at_knob_min": {
+        "heterosexual": 100,
+        "bisexual": 0,
+        "homosexual": 0
+      },
+      "at_knob_max": {
+        "heterosexual": 10,
+        "bisexual": 60,
+        "homosexual": 30
+      }
+    },
+    "race": {
+      "control": "diversity",
+      "at_knob_min": {
+        "White": 100,
+        "Black": 0,
+        "East Asian": 0,
+        "South Asian": 0,
+        "Southeast Asian": 0,
+        "Middle Eastern": 0,
+        "Indigenous": 0,
+        "Latino or Hispanic": 0,
+        "Eastern European": 0,
+        "Pacific Islander": 0
+      },
+      "at_knob_max": {
+        "White": 10,
+        "Black": 10,
+        "East Asian": 10,
+        "South Asian": 10,
+        "Southeast Asian": 10,
+        "Middle Eastern": 10,
+        "Indigenous": 10,
+        "Latino or Hispanic": 10,
+        "Eastern European": 10,
+        "Pacific Islander": 10
+      }
+    },
+    "political_leaning": {
+      "control": "diversity",
+      "at_knob_min": {
+        "Right leaning": 80,
+        "Left leaning": 20
+      },
+      "at_knob_max": {
+        "Right leaning": 20,
+        "Left leaning": 80
+      }
     }
   },
   "persona_name_pool": ["Alex", "Sam", "Riley", "Morgan", "Taylor", "Jordan", "Casey", "Jamie", "Robin", "Avery", "Quinn", "Drew"],
@@ -126,6 +234,7 @@
       "kind": "text",
       "lock_player_count": true,
       "prepare_persona_batch_after": true,
+      "prepare_persona_batch_id": "round_1",
       "persona_profile": "average",
       "text": "Welcome to a game of\n\nSelect the number of players from the side switch and hit START/NEXT.",
       "print_title": "LOVE ADVENTURE",
@@ -177,6 +286,7 @@
       "phase": "Start",
       "title": "Persona Cards",
       "kind": "generated_persona_batch",
+      "persona_batch_id": "round_1",
       "persona_profile": "average",
       "text": "Print N prepared persona cards based on the number of players. Add names to the persona list. Include a perforated line and desires."
     },
@@ -224,13 +334,34 @@
     },
     {
       "phase": "Round 1",
+      "title": "Lorem Ipsum",
+      "kind": "text",
+      "text": "Lorem Ipsum",
+      "print_title": "",
+      "print_body": "Lorem Ipsum",
+      "print_footer": ""
+    },
+    {
+      "phase": "Round 1",
+      "title": "Dolor sit",
+      "kind": "text",
+      "text": "Dolor sit",
+      "print_title": "",
+      "print_body": "Dolor sit",
+      "print_footer": "",
+      "prepare_persona_batch_after": true,
+      "prepare_persona_batch_id": "round_2",
+      "persona_profile": "controls"
+    },
+    {
+      "phase": "Round 1",
       "title": "Story Portal",
       "kind": "story_submission",
       "submission_id": "01",
       "text": "Now let me know how the night went.",
       "print_title": "",
       "print_body": "Now let me know how the night went.",
-      "print_footer": "Take this card to the round winner. They are the new Captain, and they score ONE point. They should scan the card and fill out the form. While they are doing this, it is time to explain one new rule. There are desires written on each persona card. They are folded downward so other players cannot read them. Your goal is to make your cards' desires come true. However, you cannot include them in your stories; you have to play the game in a way to realize their desires through either other players' stories or AI stories. When that desire is achieved, you win points as indicated on the card."
+      "print_footer": ""
     },
     {
       "phase": "Round 1",
@@ -243,7 +374,6 @@
       "phase": "Round 2",
       "title": "Captain setup",
       "kind": "text",
-      "prepare_persona_batch_after": true,
       "persona_profile": "controls",
       "text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain."
     },
@@ -251,6 +381,7 @@
       "phase": "Round 2",
       "title": "Persona Cards",
       "kind": "generated_persona_batch",
+      "persona_batch_id": "round_2",
       "persona_profile": "controls",
       "text": "Print N persona cards based on Age, Queerness, and Diversity. Add names to the persona list. Include a perforated line and desires."
     },
