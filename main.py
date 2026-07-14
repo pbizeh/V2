@@ -300,20 +300,49 @@ def print_card(card):
 
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
+    try:
+        wlan.disconnect()
+    except Exception:
+        pass
+    try:
+        wlan.active(False)
+        time.sleep_ms(250)
+    except Exception:
+        pass
     wlan.active(True)
     try:
         wlan.config(pm=0xa11140)
     except Exception:
         pass
-    if not wlan.isconnected():
-        print("Connecting to Wi-Fi:", config.WIFI_SSID)
+    try:
+        wlan.config(dhcp_hostname=getattr(config, "WIFI_HOSTNAME", "love-adventure-unit"))
+    except Exception:
+        pass
+
+    retries = int(getattr(config, "WIFI_RETRY_COUNT", 3))
+    for attempt in range(1, max(1, retries) + 1):
+        if wlan.isconnected():
+            break
+        print("Connecting to Wi-Fi:", config.WIFI_SSID, "attempt", attempt)
         wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
-        deadline = time.ticks_add(time.ticks_ms(), config.WIFI_CONNECT_TIMEOUT_MS)
+        deadline = time.ticks_add(time.ticks_ms(), int(getattr(config, "WIFI_CONNECT_TIMEOUT_MS", 20000)))
         while not wlan.isconnected() and time.ticks_diff(deadline, time.ticks_ms()) > 0:
             led(not (status_led and status_led.value()))
-            time.sleep_ms(300)
+            time.sleep_ms(150)
+        if not wlan.isconnected():
+            try:
+                print("Wi-Fi status:", wlan.status())
+            except Exception:
+                pass
+            try:
+                wlan.disconnect()
+            except Exception:
+                pass
+            time.sleep_ms(int(getattr(config, "WIFI_RETRY_PAUSE_MS", 700)))
+
     led(wlan.isconnected())
     if wlan.isconnected():
+        time.sleep_ms(int(getattr(config, "WIFI_STABILIZE_MS", 400)))
         apply_dns_override(wlan)
         print("Connected:", wlan.ifconfig())
     else:
@@ -521,8 +550,13 @@ def main():
                 data = result.get("data")
                 if result.get("ok") and isinstance(data, dict) and data.get("ok"):
                     status = "Unit ready."
+                else:
+                    print("Startup app check failed:", result.get("status_code"), short_detail(data))
             except Exception as exc:
                 print("Startup check error:", exc)
+                print(network_report(wlan))
+        else:
+            print("Startup Wi-Fi failed")
         print_unit_message(status)
 
     while True:
