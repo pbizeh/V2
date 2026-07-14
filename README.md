@@ -184,6 +184,7 @@ The app is designed around 58mm thermal paper.
 - Text cards are native printer text.
 - QR codes use the printer's native QR command.
 - Only persona images are raster payloads.
+- The ESP32 downloads each complete persona raster to flash, verifies its exact size, and only then sends it to the printer. This applies to static and AI-generated personas.
 - The browser preview mimics narrow thermal paper using the configured print profile.
 - Title/body/footer font sizes are controlled by `game_config.json` for the app preview and by ESP32 `config.py` for physical output.
 
