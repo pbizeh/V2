@@ -187,6 +187,7 @@ The app is designed around 58mm thermal paper.
 - The ESP32 downloads each complete persona raster to flash, verifies its exact size, and only then sends it to the printer. This applies to static and AI-generated personas.
 - The browser preview mimics narrow thermal paper using the configured print profile.
 - Title/body/footer font sizes are controlled by `game_config.json` for the app preview and by ESP32 `config.py` for physical output.
+- Text is wrapped at word boundaries before printing. The firmware automatically scales line capacity with horizontal font size: 32 columns at 1x, 16 at 2x, 10 at 3x, 8 at 4x, and so on. Only a single word longer than a full line is split.
 
 ## Story Portal
 
