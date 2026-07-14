@@ -265,6 +265,7 @@ Main endpoints:
 - `POST /api/device/next` - ESP32 advances the game and receives the next printable card.
 - `POST /api/device/status` - ESP32 health/control check-in. It can also deliver a ready notice card.
 - `POST /api/device/sanity` - startup challenge-response check for Wi-Fi, app, authentication, protocol, and physical controls.
+- `GET /api/device/raster/{game_id}/{presses}` - authenticated binary persona-image stream for the ESP32.
 - `GET /portal/{game_id}/{step}` - story portal form.
 - `POST /portal/{game_id}/{step}` - story portal submission.
 

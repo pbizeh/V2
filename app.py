@@ -14,7 +14,7 @@ from threading import Thread
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -732,6 +732,39 @@ def build_print(card: dict[str, Any], step: dict[str, Any], state: dict[str, Any
     }
 
 
+def device_safe_response(result: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    response = {
+        key: value
+        for key, value in result.items()
+        if key not in {"print", "state"}
+    }
+    state = result.get("state") or {}
+    response["state"] = {
+        key: state.get(key)
+        for key in ("game_id", "cursor", "total_steps", "presses")
+    }
+    card = response.get("card")
+    if not isinstance(card, dict):
+        return response
+
+    device_card = dict(card)
+    raster = device_card.pop("image_raster", None)
+    device_card.pop("image_data_url", None)
+    device_card.pop("image_url", None)
+    if isinstance(raster, dict) and raster.get("bytes_hex"):
+        game_id = state.get("game_id")
+        presses = state.get("presses")
+        public_url = str(cfg.get("public_app_url", "")).rstrip("/")
+        if game_id is not None and presses is not None and public_url:
+            device_card["image_raster_stream"] = {
+                "width": int(raster.get("width", 0)),
+                "height": int(raster.get("height", 0)),
+                "url": f"{public_url}/api/device/raster/{game_id}/{presses}",
+            }
+    response["card"] = device_card
+    return response
+
+
 def unique_portal_url(state: dict[str, Any], cfg: dict[str, Any]) -> str:
     base = str(cfg.get("story_portal_base_url", "")).rstrip("/")
     if not base:
@@ -1173,7 +1206,29 @@ async def api_device_next(payload: DeviceNext) -> JSONResponse:
         "next",
         f"START/NEXT accepted; players={state.get('player_count')}",
     )
-    return JSONResponse(advance(load_state(), payload.settings))
+    return JSONResponse(device_safe_response(advance(load_state(), payload.settings), cfg))
+
+
+@app.get("/api/device/raster/{game_id}/{presses}")
+async def api_device_raster(game_id: str, presses: int, request: Request) -> Response:
+    cfg = load_config()
+    validate_device_secret(request.headers.get("x-device-secret"), cfg)
+    state = load_state()
+    if state.get("game_id") != game_id or int(state.get("presses", -1)) != presses:
+        raise HTTPException(status_code=409, detail="Raster card is no longer current")
+    raster = (state.get("last_card") or {}).get("image_raster") or {}
+    data_hex = raster.get("bytes_hex")
+    if not data_hex:
+        raise HTTPException(status_code=404, detail="Current card has no raster image")
+    try:
+        binary = bytes.fromhex(str(data_hex))
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Invalid raster data") from exc
+    return Response(
+        content=binary,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/device/status")
