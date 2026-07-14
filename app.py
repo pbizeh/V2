@@ -43,6 +43,7 @@ class DeviceStatus(BaseModel):
     message: str | None = None
     settings: dict[str, int] | None = None
     player_count: int | None = None
+    lite: bool = False
 
 
 class NextRequest(BaseModel):
@@ -1177,6 +1178,12 @@ async def api_device_status(payload: DeviceStatus) -> dict[str, Any]:
         payload.status or "online",
         payload.message or "Device status check accepted",
     )
+    if payload.lite:
+        return {
+            "ok": True,
+            "detail": "Device accepted",
+        }
+
     latest_state = load_state()
     notice = deliver_ready_notice_if_needed(latest_state, cfg)
 

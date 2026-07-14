@@ -480,10 +480,12 @@ def device_payload(status=None, message=None):
     return payload
 
 
-def control_payload(status="controls", message=None):
+def control_payload(status="controls", message=None, lite=False):
     payload = device_payload(status, message)
     payload["settings"] = read_control_settings()
     payload["player_count"] = read_player_count()
+    if lite:
+        payload["lite"] = True
     return payload
 
 
@@ -495,14 +497,23 @@ def short_detail(data):
     return str(data)[:160]
 
 
+def app_status_accepted(result):
+    if not result.get("ok"):
+        return False
+    data = result.get("data")
+    if isinstance(data, dict) and data.get("ok") is False:
+        return False
+    return True
+
+
 def check_app_status(status="online", message=None):
     path = getattr(config, "STATUS_ENDPOINT", "/api/device/status")
     return post_json(path, device_payload(status, message))
 
 
-def post_control_status(status="controls", message="Live controls"):
+def post_control_status(status="controls", message="Live controls", lite=False):
     path = getattr(config, "STATUS_ENDPOINT", "/api/device/status")
-    return post_json(path, control_payload(status, message))
+    return post_json(path, control_payload(status, message, lite))
 
 
 def wait_for_press_with_live_controls(wlan):
@@ -517,9 +528,9 @@ def wait_for_press_with_live_controls(wlan):
             try:
                 result = post_control_status()
                 data = result.get("data")
-                if not (result.get("ok") and isinstance(data, dict) and data.get("ok")):
+                if not app_status_accepted(result):
                     print("Control status failed:", result.get("status_code"), short_detail(data))
-                else:
+                elif isinstance(data, dict):
                     card = data.get("card")
                     if card:
                         print_card(card)
@@ -543,9 +554,9 @@ def main():
         if wlan.isconnected():
             status = "App failed."
             try:
-                result = post_control_status("startup", "Startup check")
+                result = post_control_status("startup", "Startup check", True)
                 data = result.get("data")
-                if result.get("ok") and isinstance(data, dict) and data.get("ok"):
+                if app_status_accepted(result):
                     status = "Unit ready."
                 else:
                     print("Startup app check failed:", result.get("status_code"), short_detail(data))
