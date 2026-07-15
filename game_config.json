@@ -277,9 +277,9 @@
       "phase": "Start",
       "title": "First Round Setup",
       "kind": "text",
-      "text": "Put Jim and Julia in the middle. The Captain presses the button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain.",
+      "text": "Put Jim and Julia in the middle. The Captain presses the button. They will have the first card. Then they pass the game unit to the player to their left, who will do the same. When every player has one card in front of them, return the unit to the captain.",
       "print_title": "First Round Setup",
-      "print_body": "Put Jim and Julia in the middle. The Captain presses the button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain.",
+      "print_body": "Put Jim and Julia in the middle. The Captain presses the button. They will have the first card. Then they pass the game unit to the player to their left, who will do the same. When every player has one card in front of them, return the unit to the captain.",
       "print_footer": ""
     },
     {
@@ -366,7 +366,7 @@
       "title": "Captain setup",
       "kind": "text",
       "persona_profile": "controls",
-      "text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. They will fold the card from the indicated line and then put the card in front of them, face side up. Then they pass the game unit to the player to their left, who will do the same. When every player has one card folded in front of them, return the unit to the captain."
+      "text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. Then they pass the game unit to the player to their left, who will do the same. When every player has one card in front of them, return the unit to the captain."
     },
     {
       "phase": "Round 2",
