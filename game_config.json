@@ -3,6 +3,7 @@
   "public_app_url": "https://v2-i64p.onrender.com",
   "device_secret": "Zorombaad",
   "default_player_count": 4,
+  "persona_name_history_limit": 120,
   "default_settings": {
     "age": 50,
     "queerness": 50,
@@ -83,6 +84,8 @@
   "ready_notice_card_title": "",
   "ready_notice_card_text": "Your cards are ready, thank you for your patience.",
   "story_submission_apology_text": "Sorry, but you should first submit the story.",
+  "next_round_setup_text": "Great! now that you have a round winner, we can continue the game. The round winner is the new captain now. Give me to them. Before we move on the new captain should set the three knobs bellow to determine what sort of other people are in the ship. AGE will set how young or old they are. QUEERNESS will determine how likely they are to be queer people of all sorts. DIVERSITY will tell you how diverse the people will be. Also, think how they might help your character to fulfill their desires.\nAfter you set the knobs, hit the button once again.",
+  "captain_setup_text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. Then they pass the game unit to the player to their left, who will do the same. When every player has one card in front of them, return the unit to the captain.",
   "persona_raster": {
     "width": 384,
     "height": 320,
@@ -334,12 +337,8 @@
     },
     {
       "phase": "Round 1",
-      "title": "Lorem Ipsum",
-      "kind": "text",
-      "text": "Great! now that you have a round winner, we can continue the game. The round winner is the new captain now. Give me to them. Before we move on the new captain should set the three knobs bellow to determine what sort of other people are in the ship. AGE will set how young or old they are. QUEERNESS will determine how likely they are to be queer people of all sorts. DIVERSITY will tell you how diverse the people will be. Also, think how they might help your character to fulfill their desires.\nAfter you set the knobs, hit the button once again.",
-      "print_title": "",
-      "print_body": "Great! now that you have a round winner, we can continue the game. The round winner is the new captain now. Give me to them. Before we move on the new captain should set the three knobs bellow to determine what sort of other people are in the ship. AGE will set how young or old they are. QUEERNESS will determine how likely they are to be queer people of all sorts. DIVERSITY will tell you how diverse the people will be. Also, think how they might help your character to fulfill their desires.\nAfter you set the knobs, hit the button once again.",
-      "print_footer": ""
+      "title": "Next round setup",
+      "kind": "next_round_setup"
     },
     {
       "phase": "Round 1",
@@ -361,57 +360,65 @@
       "submission_id": "01",
       "text": "START/NEXT works only when the new captain submits."
     },
-    {
-      "phase": "Round 2",
-      "title": "Captain setup",
-      "kind": "text",
-      "persona_profile": "controls",
-      "text": "The New Captain takes hold of the box and determines the three factors: AGE, QUEERNESS, and DIVERSITY. This will affect the next cards that come out of the game unit. Then, they press the START/NEXT button. They will have the first card. Then they pass the game unit to the player to their left, who will do the same. When every player has one card in front of them, return the unit to the captain."
-    },
-    {
-      "phase": "Round 2",
-      "title": "Persona Cards",
-      "kind": "generated_persona_batch",
-      "persona_batch_id": "round_2",
-      "persona_profile": "controls",
-      "text": "Print N persona cards based on Age, Queerness, and Diversity. Each card prints its name, age, portrait, and three hashtags."
-    },
-    {
-      "phase": "Round 2",
-      "title": "Generated round story",
-      "kind": "generated_round_story",
-      "text": "One AI-generated card containing the next story title and setup based on all prior QR submissions."
-    },
-    {
-      "phase": "Round 2",
-      "title": "Vote Papers",
-      "kind": "vote",
-      "text": "Print N vote papers: C, 2, 3, 4, and so on."
-    },
-    {
-      "phase": "Round 2",
-      "title": "Voting instructions",
-      "kind": "text",
-      "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."
-    },
-    {
-      "phase": "Round 2",
-      "title": "Story Portal",
-      "kind": "qr",
-      "text": "QR code that links to the unique story portal."
-    },
-    {
-      "phase": "Round 3",
-      "title": "Same as round 2",
-      "kind": "text",
-      "text": "Same as round 2."
-    },
-    {
-      "phase": "Round 4",
-      "title": "Same as round 2",
-      "kind": "text",
-      "text": "Same as round 2."
-    }
+    {"phase": "Round 2", "title": "Captain setup", "kind": "captain_setup"},
+    {"phase": "Round 2", "title": "Persona Cards", "kind": "generated_persona_batch", "persona_batch_id": "round_2", "persona_profile": "controls", "text": "Print N persona cards."},
+    {"phase": "Round 2", "title": "Generated round story", "kind": "generated_round_story"},
+    {"phase": "Round 2", "title": "Tell stories", "kind": "round_storytelling", "round_number": 2},
+    {"phase": "Round 2", "title": "Vote Papers", "kind": "vote", "text": "Print N vote papers."},
+    {"phase": "Round 2", "title": "Voting instructions", "kind": "text", "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."},
+    {"phase": "Round 2", "title": "Next round setup", "kind": "next_round_setup"},
+    {"phase": "Round 2", "title": "Story Portal", "kind": "story_submission", "submission_id": "02", "text": "Now let me know how the second day went.", "prepare_persona_batch_after": true, "prepare_persona_batch_id": "round_3", "persona_profile": "controls"},
+    {"phase": "Round 2", "title": "Submission gate", "kind": "submission_gate", "submission_id": "02"},
+
+    {"phase": "Round 3", "title": "Captain setup", "kind": "captain_setup"},
+    {"phase": "Round 3", "title": "Persona Cards", "kind": "generated_persona_batch", "persona_batch_id": "round_3", "persona_profile": "controls", "text": "Print N persona cards."},
+    {"phase": "Round 3", "title": "Generated round story", "kind": "generated_round_story"},
+    {"phase": "Round 3", "title": "Tell stories", "kind": "round_storytelling", "round_number": 3},
+    {"phase": "Round 3", "title": "Vote Papers", "kind": "vote", "text": "Print N vote papers."},
+    {"phase": "Round 3", "title": "Voting instructions", "kind": "text", "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."},
+    {"phase": "Round 3", "title": "Next round setup", "kind": "next_round_setup"},
+    {"phase": "Round 3", "title": "Story Portal", "kind": "story_submission", "submission_id": "03", "text": "Now let me know how the third day went.", "prepare_persona_batch_after": true, "prepare_persona_batch_id": "round_4", "persona_profile": "controls"},
+    {"phase": "Round 3", "title": "Submission gate", "kind": "submission_gate", "submission_id": "03"},
+
+    {"phase": "Round 4", "title": "Captain setup", "kind": "captain_setup"},
+    {"phase": "Round 4", "title": "Persona Cards", "kind": "generated_persona_batch", "persona_batch_id": "round_4", "persona_profile": "controls", "text": "Print N persona cards."},
+    {"phase": "Round 4", "title": "Generated round story", "kind": "generated_round_story"},
+    {"phase": "Round 4", "title": "Tell stories", "kind": "round_storytelling", "round_number": 4},
+    {"phase": "Round 4", "title": "Vote Papers", "kind": "vote", "text": "Print N vote papers."},
+    {"phase": "Round 4", "title": "Voting instructions", "kind": "text", "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."},
+    {"phase": "Round 4", "title": "Next round setup", "kind": "next_round_setup"},
+    {"phase": "Round 4", "title": "Story Portal", "kind": "story_submission", "submission_id": "04", "text": "Now let me know how the fourth day went.", "prepare_persona_batch_after": true, "prepare_persona_batch_id": "round_5", "persona_profile": "controls"},
+    {"phase": "Round 4", "title": "Submission gate", "kind": "submission_gate", "submission_id": "04"},
+
+    {"phase": "Round 5", "title": "Captain setup", "kind": "captain_setup"},
+    {"phase": "Round 5", "title": "Persona Cards", "kind": "generated_persona_batch", "persona_batch_id": "round_5", "persona_profile": "controls", "text": "Print N persona cards."},
+    {"phase": "Round 5", "title": "Generated round story", "kind": "generated_round_story"},
+    {"phase": "Round 5", "title": "Tell stories", "kind": "round_storytelling", "round_number": 5},
+    {"phase": "Round 5", "title": "Vote Papers", "kind": "vote", "text": "Print N vote papers."},
+    {"phase": "Round 5", "title": "Voting instructions", "kind": "text", "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."},
+    {"phase": "Round 5", "title": "Next round setup", "kind": "next_round_setup"},
+    {"phase": "Round 5", "title": "Story Portal", "kind": "story_submission", "submission_id": "05", "text": "Now let me know how the fifth day went.", "prepare_persona_batch_after": true, "prepare_persona_batch_id": "round_6", "persona_profile": "controls"},
+    {"phase": "Round 5", "title": "Submission gate", "kind": "submission_gate", "submission_id": "05"},
+
+    {"phase": "Round 6", "title": "Captain setup", "kind": "captain_setup"},
+    {"phase": "Round 6", "title": "Persona Cards", "kind": "generated_persona_batch", "persona_batch_id": "round_6", "persona_profile": "controls", "text": "Print N persona cards."},
+    {"phase": "Round 6", "title": "Generated round story", "kind": "generated_round_story"},
+    {"phase": "Round 6", "title": "Tell stories", "kind": "round_storytelling", "round_number": 6},
+    {"phase": "Round 6", "title": "Vote Papers", "kind": "vote", "text": "Print N vote papers."},
+    {"phase": "Round 6", "title": "Voting instructions", "kind": "text", "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."},
+    {"phase": "Round 6", "title": "Next round setup", "kind": "next_round_setup"},
+    {"phase": "Round 6", "title": "Story Portal", "kind": "story_submission", "submission_id": "06", "text": "Now let me know how the sixth day went.", "prepare_persona_batch_after": true, "prepare_persona_batch_id": "round_7", "persona_profile": "controls"},
+    {"phase": "Round 6", "title": "Submission gate", "kind": "submission_gate", "submission_id": "06"},
+
+    {"phase": "Round 7", "title": "Captain setup", "kind": "captain_setup"},
+    {"phase": "Round 7", "title": "Persona Cards", "kind": "generated_persona_batch", "persona_batch_id": "round_7", "persona_profile": "controls", "text": "Print N persona cards."},
+    {"phase": "Round 7", "title": "Generated round story", "kind": "generated_round_story"},
+    {"phase": "Round 7", "title": "Tell stories", "kind": "round_storytelling", "round_number": 7},
+    {"phase": "Round 7", "title": "Vote Papers", "kind": "vote", "text": "Print N vote papers."},
+    {"phase": "Round 7", "title": "Voting instructions", "kind": "text", "text": "Now use the voting papers to vote for the story that you liked. Detach the number, with C being Captain and so on, face it down and pass it to the captain. You cannot vote for yourself. In case of a tie, the Captain will have the final vote."},
+    {"phase": "Round 7", "title": "Story Portal", "kind": "story_submission", "submission_id": "07", "text": "Now let me know how the seventh day went."},
+    {"phase": "Round 7", "title": "Submission gate", "kind": "submission_gate", "submission_id": "07"},
+    {"phase": "End", "title": "Thank you", "kind": "text", "text": "Thank you for playing, the player with most round wins is the winner.", "print_title": "", "print_body": "Thank you for playing, the player with most round wins is the winner.", "print_footer": ""}
   ],
   "prompts": {
     "persona_generation": "Generate {count} short persona cards for a thermal printer. Current controls: AGE={age}/100, QUEERNESS={queerness}/100, DIVERSITY={diversity}/100. Each card should be numbered and include: name, age cue, pronouns or sexuality cue, 2-3 personality hashtags, and one secret desire after the fold line. Keep the whole output compact.",

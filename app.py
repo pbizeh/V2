@@ -109,6 +109,7 @@ def default_state() -> dict[str, Any]:
         "captain_index": 0,
         "scores": {},
         "persona_names": [],
+        "printed_persona_names": [],
         "persona_queue": [],
         "button_waiting_for_ready_key": None,
         "vote_ballots_remaining": None,
@@ -415,7 +416,10 @@ def story_portal_persona_names(state: dict[str, Any], cfg: dict[str, Any]) -> li
     }
     names: list[str] = []
     seen: set[str] = set()
-    for value in state.get("persona_names", []) or []:
+    source_names = state.get("printed_persona_names")
+    if source_names is None:
+        source_names = state.get("persona_names", [])
+    for value in source_names or []:
         name = clean_name(value)
         key = name.casefold()
         if name and key not in excluded and key not in seen:
@@ -664,7 +668,8 @@ def generate_persona_batch(state: dict[str, Any], cfg: dict[str, Any], step: dic
             avoid_names.append(name)
     names = [clean_name((card.get("persona") or {}).get("name", "")) for card in cards if (card.get("persona") or {}).get("name")]
     if names:
-        state["persona_names"] = (state.get("persona_names", []) + names)[-30:]
+        history_limit = int(cfg.get("persona_name_history_limit", 120))
+        state["persona_names"] = (state.get("persona_names", []) + names)[-history_limit:]
     return cards
 
 
@@ -948,6 +953,38 @@ def cumulative_story_history(state: dict[str, Any]) -> str:
     return "\n\n".join(entries)
 
 
+def journey_day_name(round_number: int) -> str:
+    names = {
+        1: "first",
+        2: "second",
+        3: "third",
+        4: "fourth",
+        5: "fifth",
+        6: "sixth",
+        7: "seventh",
+    }
+    return names.get(round_number, str(round_number))
+
+
+def round_storytelling_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    round_number = max(2, int(step.get("round_number", 2)))
+    winners = [
+        clean_text(str(submission.get("character", ""))).strip()
+        for _, submission in sorted(
+            (state.get("story_submissions", {}) or {}).items(),
+            key=lambda item: (0, int(item[0])) if str(item[0]).isdigit() else (1, str(item[0])),
+        )
+        if clean_text(str((submission or {}).get("character", ""))).strip()
+    ]
+    characters = ", ".join(["Jim", "Julia", *winners])
+    body = (
+        f"Now one-by-one, just like the first round, tell the stories of {characters} "
+        f"on the {journey_day_name(round_number)} day of their journey. "
+        "All the persona cards are people on the ship."
+    )
+    return {"title": "", "body": body, "footer": "", "styles": cfg.get("print_text_styles", {}), "show_divider": False}
+
+
 def generated_round_story_card(state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, str]:
     history = cumulative_story_history(state)
     prompt = ROUND_STORY_CARD_PROMPT.format(
@@ -984,6 +1021,24 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
                     "blank_before": True,
                 },
             ],
+            "footer": "",
+            "styles": styles,
+            "show_divider": False,
+        }
+
+    if kind == "next_round_setup":
+        return {
+            "title": "",
+            "body": str(cfg.get("next_round_setup_text", "")),
+            "footer": "",
+            "styles": styles,
+            "show_divider": False,
+        }
+
+    if kind == "captain_setup":
+        return {
+            "title": "",
+            "body": str(cfg.get("captain_setup_text", "")),
             "footer": "",
             "styles": styles,
             "show_divider": False,
@@ -1049,6 +1104,9 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             "show_divider": bool(step.get("show_divider", False)),
             "generation_prompt": generated["prompt"],
         }
+
+    if kind == "round_storytelling":
+        return round_storytelling_card(step, state, cfg)
 
     if kind == "generated_title" or "[title based on prompt response]" in lower:
         value = ai_or_fallback("round_title", "fallback_round_title", state, cfg)
@@ -1271,6 +1329,12 @@ def advance(state: dict[str, Any], settings: dict[str, Any] | None = None) -> di
         card = queue.pop(0)
         print_item = build_print(card, step, state, cfg, cursor)
         state["persona_queue"] = queue
+        printed_name = clean_name((card.get("persona") or {}).get("name", ""))
+        if printed_name:
+            history_limit = int(cfg.get("persona_name_history_limit", 120))
+            state["printed_persona_names"] = (
+                state.get("printed_persona_names", []) + [printed_name]
+            )[-history_limit:]
         if state.get("ready_notice_key") == state.get("persona_queue_key"):
             state["ready_notice_pending"] = False
         if state.get("button_waiting_for_ready_key") == state.get("persona_queue_key"):
@@ -1335,6 +1399,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "scores": state.get("scores", {}),
         "settings": normalize_settings(state.get("settings", {})),
         "persona_names": state.get("persona_names", []),
+        "printed_persona_names": state.get("printed_persona_names", []),
         "persona_queue_remaining": len(state.get("persona_queue", [])),
         "persona_generation_status": state.get("persona_generation_status"),
         "story_submissions": state.get("story_submissions", {}),

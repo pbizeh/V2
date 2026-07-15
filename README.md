@@ -13,7 +13,7 @@ Live links:
 
 The active flow is stored in `game_config.json` under `scenario_steps`. `Scenarios.xlsx` is reference only and is not read by the app.
 
-The current configured flow has 23 steps:
+The current configured flow has 69 configured steps, with persona and ballot steps each printing N individual cards:
 
 1. Welcome card.
 2. First-captain instructions.
@@ -33,15 +33,19 @@ The current configured flow has 23 steps:
 16. Round 2 captain setup.
 17. N generated Round 2 persona cards.
 18. One generated Round 2 title-and-story card based on cumulative QR submissions.
-19. Round 2 vote cards.
-20. Round 2 voting instructions.
-21. Round 2 QR placeholder step.
-22. Round 3 placeholder.
-23. Round 4 placeholder.
+19. Round 2 storytelling instructions naming all previous winning personas.
+20. N Round 2 vote cards and voting instructions.
+21. New-captain setup, Round 2 submission QR, and blocking submission gate.
+22. Rounds 3-6 repeat the complete Round 2 pattern, with each QR triggering the next persona batch.
+23. Round 7 repeats the story, storytelling, and voting pattern.
+24. The Round 7 submission QR and gate require the final story submission.
+25. Final thank-you and winner message.
 
 The first button press locks the player count for that game and starts preparing the first generated persona batch in the background. Later changes to the player switch do not change the locked player count for the active game.
 
 If the game reaches a generated card that is not ready yet, it prints the configured patience card and does not advance. While waiting, further button presses do nothing. When the cards are ready, the app prints the configured ready notice and the next button press resumes normal play.
+
+Every round's story QR is followed by a submission gate. The game cannot enter the next round, or finish after Round 7, until the current QR form has been submitted. Story prompts accumulate every prior submitted winner and story across the seven-day journey.
 
 ## Controller
 
