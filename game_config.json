@@ -231,14 +231,14 @@
     {
       "phase": "Start",
       "title": "Welcome to a game of Love Adventure",
-      "kind": "text",
+      "kind": "welcome",
       "lock_player_count": true,
       "prepare_persona_batch_after": true,
       "prepare_persona_batch_id": "round_1",
       "persona_profile": "average",
-      "text": "Welcome to a game of\n\nSelect the number of players from the side switch and hit START/NEXT.",
-      "print_title": "LOVE ADVENTURE",
-      "print_body": "Welcome to a game of\n\nSelect the number of players from the side switch and hit START/NEXT.",
+      "text": "Welcome to a game of\nLOVE ADVENTURE\n\nSelect the number of players from the side switch and hit START/NEXT.",
+      "print_title": "",
+      "print_body": "",
       "print_footer": ""
     },
     {
@@ -288,7 +288,7 @@
       "kind": "generated_persona_batch",
       "persona_batch_id": "round_1",
       "persona_profile": "average",
-      "text": "Print N prepared persona cards based on the number of players. Add names to the persona list. Include a perforated line and desires."
+      "text": "Print N prepared persona cards based on the number of players. Each card prints its name, age, portrait, and three hashtags."
     },
     {
       "phase": "Round 1",
@@ -310,10 +310,10 @@
     },
     {
       "phase": "Round 1",
-      "title": "Now its time vote!",
+      "title": "Now it's time to vote!",
       "kind": "text",
       "text": "First print out the ballots.",
-      "print_title": "Now its time vote!",
+      "print_title": "Now it's time to vote!",
       "print_body": "First print out the ballots.",
       "print_footer": ""
     },
@@ -336,22 +336,10 @@
       "phase": "Round 1",
       "title": "Lorem Ipsum",
       "kind": "text",
-      "text": "Lorem Ipsum",
+      "text": "Great! now that you have a round winner, we can continue the game. The round winner is the new captain now. Give me to them. Before we move on the new captain should set the three knobs bellow to determine what sort of other people are in the ship. AGE will set how young or old they are. QUEERNESS will determine how likely they are to be queer people of all sorts. DIVERSITY will tell you how diverse the people will be. Also, think how they might help your character to fulfill their desires.\nAfter you set the knobs, hit the button once again.",
       "print_title": "",
-      "print_body": "Lorem Ipsum",
+      "print_body": "Great! now that you have a round winner, we can continue the game. The round winner is the new captain now. Give me to them. Before we move on the new captain should set the three knobs bellow to determine what sort of other people are in the ship. AGE will set how young or old they are. QUEERNESS will determine how likely they are to be queer people of all sorts. DIVERSITY will tell you how diverse the people will be. Also, think how they might help your character to fulfill their desires.\nAfter you set the knobs, hit the button once again.",
       "print_footer": ""
-    },
-    {
-      "phase": "Round 1",
-      "title": "Dolor sit",
-      "kind": "text",
-      "text": "Dolor sit",
-      "print_title": "",
-      "print_body": "Dolor sit",
-      "print_footer": "",
-      "prepare_persona_batch_after": true,
-      "prepare_persona_batch_id": "round_2",
-      "persona_profile": "controls"
     },
     {
       "phase": "Round 1",
@@ -361,7 +349,10 @@
       "text": "Now let me know how the night went.",
       "print_title": "",
       "print_body": "Now let me know how the night went.",
-      "print_footer": ""
+      "print_footer": "",
+      "prepare_persona_batch_after": true,
+      "prepare_persona_batch_id": "round_2",
+      "persona_profile": "controls"
     },
     {
       "phase": "Round 1",
@@ -383,19 +374,13 @@
       "kind": "generated_persona_batch",
       "persona_batch_id": "round_2",
       "persona_profile": "controls",
-      "text": "Print N persona cards based on Age, Queerness, and Diversity. Add names to the persona list. Include a perforated line and desires."
+      "text": "Print N persona cards based on Age, Queerness, and Diversity. Each card prints its name, age, portrait, and three hashtags."
     },
     {
       "phase": "Round 2",
-      "title": "Generated title",
-      "kind": "generated_title",
-      "text": "[Title based on prompt response]"
-    },
-    {
-      "phase": "Round 2",
-      "title": "Generated story",
-      "kind": "generated_story",
-      "text": "[Story based on prompt response]"
+      "title": "Generated round story",
+      "kind": "generated_round_story",
+      "text": "One AI-generated card containing the next story title and setup based on all prior QR submissions."
     },
     {
       "phase": "Round 2",

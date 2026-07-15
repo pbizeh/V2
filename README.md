@@ -13,7 +13,7 @@ Live links:
 
 The active flow is stored in `game_config.json` under `scenario_steps`. `Scenarios.xlsx` is reference only and is not read by the app.
 
-The current configured flow has 25 steps:
+The current configured flow has 23 steps:
 
 1. Welcome card.
 2. First-captain instructions.
@@ -27,19 +27,17 @@ The current configured flow has 25 steps:
 10. Vote setup.
 11. N ballot cards.
 12. Voting instructions.
-13. `Lorem Ipsum` placeholder card.
-14. `Dolor sit` placeholder card, which starts preparing the Round 2 personas.
-15. Story submission QR card.
-16. Submission gate until the winner submits the story.
-17. Round 2 captain setup.
-18. N generated Round 2 persona cards.
-19. Generated Round 2 title.
-20. Generated Round 2 story.
-21. Round 2 vote cards.
-22. Round 2 voting instructions.
-23. Round 2 QR placeholder step.
-24. Round 3 placeholder.
-25. Round 4 placeholder.
+13. New-captain and persona-control instructions.
+14. Story submission QR card, which starts preparing the Round 2 personas.
+15. Submission gate until the winner submits the story.
+16. Round 2 captain setup.
+17. N generated Round 2 persona cards.
+18. One generated Round 2 title-and-story card based on cumulative QR submissions.
+19. Round 2 vote cards.
+20. Round 2 voting instructions.
+21. Round 2 QR placeholder step.
+22. Round 3 placeholder.
+23. Round 4 placeholder.
 
 The first button press locks the player count for that game and starts preparing the first generated persona batch in the background. Later changes to the player switch do not change the locked player count for the active game.
 

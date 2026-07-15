@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from prompts_config import FALLBACK_IMAGE_PROMPT, PERSONA_CARD_PROMPT
+from prompts_config import FALLBACK_IMAGE_PROMPT, PERSONA_CARD_PROMPT, ROUND_STORY_CARD_PROMPT
 from traits_config import TRAITS
 
 
@@ -354,6 +354,23 @@ def normalize_hashtags(value: Any, cfg: dict[str, Any]) -> list[str]:
     return tags[:4]
 
 
+def generated_hashtags(ai_value: Any, trait: str, cfg: dict[str, Any]) -> list[str]:
+    tags = normalize_hashtags(ai_value, cfg)
+    if len(tags) >= 3:
+        return tags[:3]
+    return normalize_hashtags([trait, *tags], cfg)[:3]
+
+
+def persona_print_styles(cfg: dict[str, Any]) -> dict[str, Any]:
+    styles = {
+        key: dict(value) if isinstance(value, dict) else value
+        for key, value in (cfg.get("print_text_styles", {}) or {}).items()
+    }
+    styles["body"] = dict(styles.get("body", {}))
+    styles["body"]["align"] = "center"
+    return styles
+
+
 def clean_name(value: Any) -> str:
     name = clean_text(str(value or "")).strip()
     name = "".join(ch for ch in name if ch.isalnum() or ch in " -'")
@@ -374,6 +391,37 @@ def avoided_persona_names(state: dict[str, Any], cfg: dict[str, Any], extra: lis
             seen.add(key)
             result.append(cleaned)
     return result
+
+
+def parse_round_story_response(text: str | None) -> dict[str, str]:
+    result = {"title": "", "story": ""}
+    current = ""
+    for line in (text or "").splitlines():
+        label, separator, value = line.partition(":")
+        normalized = label.strip().upper()
+        if separator and normalized in {"TITLE", "STORY"}:
+            current = normalized.lower()
+            result[current] = value.strip()
+        elif current and line.strip():
+            result[current] = (result[current] + " " + line.strip()).strip()
+    return result
+
+
+def story_portal_persona_names(state: dict[str, Any], cfg: dict[str, Any]) -> list[str]:
+    excluded = {
+        clean_name(persona.get("name", "")).casefold()
+        for persona in (cfg.get("static_personas") or {}).values()
+        if clean_name(persona.get("name", ""))
+    }
+    names: list[str] = []
+    seen: set[str] = set()
+    for value in state.get("persona_names", []) or []:
+        name = clean_name(value)
+        key = name.casefold()
+        if name and key not in excluded and key not in seen:
+            names.append(name)
+            seen.add(key)
+    return names
 
 
 def interpolate_weight_maps(start: dict[str, Any], end: dict[str, Any], position: float) -> dict[str, float]:
@@ -534,7 +582,7 @@ def image_to_card_payload(image, cfg: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    styles = cfg.get("print_text_styles", {})
+    styles = persona_print_styles(cfg)
     content = cfg.get("print_content", {})
     name = clean_text(str(data.get("name") or content.get("persona_default_name", "Persona")))
     age = clean_text(str(data.get("age", ""))).strip()
@@ -543,13 +591,10 @@ def persona_card_from_data(data: dict[str, Any], cfg: dict[str, Any]) -> dict[st
     persona = {key: value for key, value in data.items() if not key.startswith("_")}
     card = {
         "title": title,
-        "body": "",
+        "body": " ".join(hashtags),
         "compact_title_spacing": True,
         "title_image_gap_dots": int(content.get("persona_title_image_gap_dots", 6)),
         "image_text_gap_dots": int(content.get("persona_image_text_gap_dots", 8)),
-        "text_parts": [
-            {"text": " ".join(hashtags)},
-        ],
         "footer": "",
         "styles": styles,
         "show_divider": False,
@@ -595,7 +640,7 @@ def generate_one_persona(
         "image_prompt": clean_text(str(ai_values.get("image_prompt", ""))).strip(),
         "traits": [facts["trait"]],
         "hashtag_and_name_prompts": {"hashtag": prompt, "name": prompt},
-        "hashtags": normalize_hashtags(ai_values.get("hashtags"), cfg),
+        "hashtags": generated_hashtags(ai_values.get("hashtags"), str(facts["trait"]), cfg),
     }
     name = clean_name(data.get("name"))
     if not name or name.casefold() in {item.casefold() for item in avoid_names}:
@@ -775,11 +820,17 @@ def render_print_preview(card: dict[str, Any], state: dict[str, Any], cfg: dict[
     if title:
         lines.extend(wrap_text(title, width))
         lines.append("")
-    for paragraph in str(card.get("body", "")).split("\n"):
-        if paragraph.strip():
-            lines.extend(wrap_text(paragraph, width))
-        else:
-            lines.append("")
+    body_align = ((card.get("styles") or {}).get("body") or {}).get("align", "left")
+    body_text = str(card.get("body", ""))
+    if body_text:
+        for paragraph in body_text.split("\n"):
+            if paragraph.strip():
+                body_lines = wrap_text(paragraph, width)
+                if body_align == "center":
+                    body_lines = [center_text(line, width) for line in body_lines]
+                lines.extend(body_lines)
+            else:
+                lines.append("")
     for part in card.get("text_parts") or []:
         if part.get("blank_before"):
             lines.append("")
@@ -881,6 +932,34 @@ def story_submitted(state: dict[str, Any], submission_id: str) -> bool:
     return bool(state.get(story_key(submission_id)) and state.get(character_winner_key(submission_id)))
 
 
+def cumulative_story_history(state: dict[str, Any]) -> str:
+    submissions = state.get("story_submissions", {}) or {}
+    entries: list[str] = []
+    for submission_id in sorted(
+        submissions,
+        key=lambda value: (0, int(value)) if str(value).isdigit() else (1, str(value)),
+    ):
+        submission = submissions.get(submission_id) or {}
+        character = clean_text(str(submission.get("character", ""))).strip()
+        story = clean_text(str(submission.get("story", ""))).strip()
+        if character and story:
+            introduction = "Last night they met" if not entries else "After that they met"
+            entries.append(f"{introduction} {character}\n{story}")
+    return "\n\n".join(entries)
+
+
+def generated_round_story_card(state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, str]:
+    history = cumulative_story_history(state)
+    prompt = ROUND_STORY_CARD_PROMPT.format(
+        story_history=history or "No previous story has been submitted yet."
+    )
+    parsed = parse_round_story_response(openai_chat(prompt, cfg))
+    title = clean_text(parsed.get("title", "")).strip() or str(cfg.get("fallback_round_title", "The story continues"))
+    story = clean_text(parsed.get("story", "")).strip() or str(cfg.get("fallback_round_story", "The voyage continues."))
+    story = " ".join(story.split()[:150])
+    return {"title": title, "story": story, "prompt": prompt}
+
+
 def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     value = apply_placeholders(str(step.get("text", "")), state, cfg)
     content = cfg.get("print_content", {})
@@ -892,6 +971,23 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
     footer = render_template(footer_template, state, cfg, {"step_number": state.get("cursor", 0) + 1})
     lower = value.lower()
     styles = cfg.get("print_text_styles", {})
+
+    if kind == "welcome":
+        return {
+            "title": "",
+            "body": "",
+            "text_parts": [
+                {"text": "Welcome to a game of", "style": {"align": "center"}},
+                {"text": "LOVE ADVENTURE", "blank_before": True, "style": styles.get("title", {})},
+                {
+                    "text": "Select the number of players from the side switch and hit START/NEXT.",
+                    "blank_before": True,
+                },
+            ],
+            "footer": "",
+            "styles": styles,
+            "show_divider": False,
+        }
 
     if kind == "static_persona":
         persona_id = str(step.get("persona_id", "")).strip()
@@ -908,7 +1004,7 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             "footer": str(persona.get("footer", "")),
             "image_url": str(persona.get("image_url", "")),
             "image_raster": load_raster_payload(persona.get("raster_path")),
-            "styles": styles,
+            "styles": persona_print_styles(cfg),
             "show_divider": bool(step.get("show_divider", False)),
         }
 
@@ -941,6 +1037,17 @@ def build_card(step: dict[str, Any], state: dict[str, Any], cfg: dict[str, Any])
             "footer": footer,
             "qr_url": qr_url,
             "styles": styles,
+        }
+
+    if kind == "generated_round_story":
+        generated = generated_round_story_card(state, cfg)
+        return {
+            "title": generated["title"],
+            "body": generated["story"],
+            "footer": "",
+            "styles": styles,
+            "show_divider": bool(step.get("show_divider", False)),
+            "generation_prompt": generated["prompt"],
         }
 
     if kind == "generated_title" or "[title based on prompt response]" in lower:
@@ -1434,6 +1541,7 @@ async def api_device_sanity(payload: DeviceSanity) -> JSONResponse:
 @app.get("/portal/{game_id}/{step}", response_class=HTMLResponse)
 async def portal(game_id: str, step: str) -> str:
     state = load_state()
+    cfg = load_config()
     submission_id = str(step).zfill(2)
     if state.get("game_id") != game_id:
         return PORTAL_HTML.format(
@@ -1444,7 +1552,7 @@ async def portal(game_id: str, step: str) -> str:
             message="This story portal does not match the active game.",
             submitted="false",
         )
-    names = state.get("persona_names", [])[-int(state.get("player_count", 4)):] or state.get("persona_names", [])
+    names = story_portal_persona_names(state, cfg)
     options = "\n".join(
         f'<option value="{html_lib.escape(str(name), quote=True)}">{html_lib.escape(str(name))}</option>'
         for name in names
@@ -1464,6 +1572,7 @@ async def portal(game_id: str, step: str) -> str:
 @app.post("/portal/{game_id}/{step}")
 async def submit_story(game_id: str, step: str, request: Request) -> dict[str, Any]:
     state = load_state()
+    cfg = load_config()
     submission_id = str(step).zfill(2)
     if state.get("game_id") != game_id:
         raise HTTPException(status_code=404, detail="Story portal does not match the active game")
@@ -1472,7 +1581,7 @@ async def submit_story(game_id: str, step: str, request: Request) -> dict[str, A
     payload = await request.json()
     character = clean_text(str(payload.get("character", ""))).strip()
     story = clean_text(str(payload.get("story", ""))).strip()[:1000]
-    names = [str(name) for name in (state.get("persona_names", [])[-int(state.get("player_count", 4)):] or state.get("persona_names", []))]
+    names = story_portal_persona_names(state, cfg)
     if not character or character not in names:
         raise HTTPException(status_code=400, detail="Choose one generated character")
     if not story:
